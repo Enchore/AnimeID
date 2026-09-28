@@ -1,0 +1,1183 @@
+{% extends "base.html" %}
+{% block title %}角色牆 - AnimeID 動漫角色識別系统{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ================================
+   右侧識別記錄 — 3D 球面画廊 (CSS 3D transforms)
+   完整球体，球心在 sidebar 右边缘，overflow 裁剪右半
+   仅左半圆可见，右半圆溢出隐藏
+   鼠标拖曳旋转，自動旋转
+   悬停：展开矩形列表
+   ================================ */
+.rec-sidebar {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 180px;
+    height: 340px;
+    perspective: 900px;
+    perspective-origin: 50% 50%;
+    z-index: 50;
+    overflow: hidden;
+    transition: width 0.4s cubic-bezier(0.25,0.1,0.25,1),
+                height 0.4s cubic-bezier(0.25,0.1,0.25,1),
+                background 0.35s ease,
+                box-shadow 0.35s ease;
+}
+
+/* ═══ Hover 展开：短矩形列表 ═══ */
+.rec-sidebar:hover {
+    width: 320px;
+    height: 450px;
+    perspective: none;
+    perspective-origin: unset;
+    background: rgba(255,255,255,0.98);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border: 1px solid var(--hairline);
+    border-right: none;
+    border-radius: 16px 0 0 16px;
+    box-shadow: -4px 0 32px rgba(0,0,0,0.08);
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--hairline) transparent;
+}
+.rec-sidebar::-webkit-scrollbar { width: 4px; }
+.rec-sidebar::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 2px; }
+.rec-sidebar::-webkit-scrollbar-track { background: transparent; }
+
+/* ═══ 球体容器 — CSS 3D ═══ */
+.rec-sb-fan {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+}
+
+/* 3D 球面（默认可见） */
+.rec-sb-sphere {
+    position: absolute;
+    left: calc(100% + 40px);
+    top: 50%;
+    width: 0; height: 0;
+    transform-style: preserve-3d;
+}
+
+/* 展开列表（默认隐藏，hover 显示） */
+.rec-sb-list {
+    display: none;
+}
+
+.rec-sidebar:hover .rec-sb-sphere {
+    display: none;
+}
+
+.rec-sidebar:hover .rec-sb-list {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+}
+
+/* ═══ 头部 ═══ */
+.rec-sb-header {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 15;
+    white-space: nowrap;
+    display: none;  /* 默认隐藏时钟，hover 展开时显示 */
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    transition: all 0.4s cubic-bezier(0.25,0.1,0.25,1);
+}
+.rec-sb-header .rec-sb-icon {
+    font-size: 1.3rem;
+    color: var(--ink-muted);
+    opacity: 0.35;
+    transition: opacity 0.3s ease, font-size 0.3s ease;
+    pointer-events: none;
+}
+.rec-sb-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    opacity: 0;
+    max-width: 0;
+    overflow: hidden;
+    transition: opacity 0.2s ease 0.05s, max-width 0.3s ease 0.05s;
+}
+.rec-sb-view-all {
+    font-size: 0.68rem;
+    color: var(--primary);
+    text-decoration: none;
+    white-space: nowrap;
+    opacity: 0;
+    max-width: 0;
+    overflow: hidden;
+    transition: opacity 0.2s ease 0.1s, max-width 0.3s ease 0.1s;
+    margin-left: 0;
+}
+
+.rec-sidebar:hover .rec-sb-header {
+    position: sticky;
+    top: 0;
+    left: auto;
+    transform: none;
+    width: 100%;
+    padding: 12px 16px 10px;
+    display: flex;  /* hover 时显示 */
+    justify-content: space-between;
+    border-bottom: 1px solid var(--hairline);
+    background: rgba(255,255,255,0.97);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-radius: 16px 0 0 0;
+    z-index: 12;
+    flex-shrink: 0;
+}
+.rec-sidebar:hover .rec-sb-icon {
+    font-size: 0.95rem;
+    opacity: 1;
+}
+.rec-sidebar:hover .rec-sb-title {
+    opacity: 1;
+    max-width: 160px;
+}
+.rec-sidebar:hover .rec-sb-view-all {
+    opacity: 1;
+    max-width: 55px;
+    margin-left: auto;
+}
+.rec-sb-view-all:hover { text-decoration: underline; }
+
+/* ═══ 球面图块 — CSS 3D transform ═══ */
+.rec-sb-item {
+    position: absolute;
+    /* 图块居中对其自身中心 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+    backface-visibility: hidden;
+    /* JS 设定 transform: rotateY() rotateX() translateZ(r) */
+    pointer-events: auto;
+    will-change: transform;
+}
+/* 悬浮时放大 */
+.rec-sb-item:hover {
+    z-index: 100 !important;
+}
+
+/* 球面缩略图 — 灰度 + 半透明 */
+.rec-sb-sphere .rec-sb-thumb {
+    filter: grayscale(100%);
+    opacity: 0.55;
+}
+
+/* ═══ 悬停展开时列表项 ═══ */
+.rec-sidebar:hover .rec-sb-list .rec-sb-item {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    margin: 0 !important;
+    transform: none !important;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 6px 14px;
+    gap: 0;
+    border-bottom: 1px solid var(--divider-soft);
+    will-change: auto;
+    backface-visibility: visible;
+}
+.rec-sidebar:hover .rec-sb-list .rec-sb-item:hover {
+    background: rgba(0,0,0,0.025);
+}
+
+/* 球面缩略图 */
+.rec-sb-thumb {
+    display: block;
+    width: 50px;
+    height: 36px;
+    border-radius: 5px;
+    object-fit: cover;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    background: var(--divider-soft);
+    flex-shrink: 0;
+    backface-visibility: hidden;
+}
+
+/* 展开后缩略图变大变方 */
+.rec-sidebar:hover .rec-sb-thumb {
+    width: 56px;
+    height: 56px;
+    border-radius: 8px;
+    border-width: 1px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+/* ═══ 展开后的文字信息 ═══ */
+.rec-sb-info {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    max-width: 0;
+    margin-left: 0;
+    transition: opacity 0.2s ease 0.05s, max-width 0.3s ease 0.05s, margin-left 0.3s ease;
+}
+.rec-sidebar:hover .rec-sb-list .rec-sb-info {
+    opacity: 1;
+    max-width: 220px;
+    margin-left: 10px;
+}
+.rec-sb-char {
+    font-size: 0.78rem;
+    font-weight: 550;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    white-space: nowrap;
+}
+.rec-sb-meta {
+    font-size: 0.66rem;
+    color: var(--ink-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+.rec-sb-time {
+    flex-shrink: 0;
+    font-size: 0.6rem;
+    color: var(--ink-subtle);
+    opacity: 0;
+    transition: opacity 0.3s ease 0.08s;
+}
+.rec-sidebar:hover .rec-sb-time { opacity: 1; }
+.rec-sb-badge {
+    font-size: 0.55rem;
+    padding: 0 4px;
+    border-radius: 3px;
+    font-weight: 500;
+    flex-shrink: 0;
+    line-height: 1.5;
+}
+.rec-sb-badge.ai { background: rgba(0,102,204,0.08); color: var(--primary); }
+.rec-sb-badge.local { background: rgba(134,134,139,0.08); color: var(--ink-muted); }
+.rec-sb-badge.notanime { background: rgba(255,59,48,0.07); color: var(--danger); }
+
+/* ═══ 空状态 ═══ */
+.rec-sb-empty {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    font-size: 0.65rem;
+    color: var(--ink-subtle);
+    opacity: 0.35;
+    white-space: nowrap;
+    transition: all 0.4s cubic-bezier(0.25,0.1,0.25,1);
+}
+.rec-sidebar:hover .rec-sb-empty {
+    position: relative;
+    left: auto;
+    top: auto;
+    transform: none;
+    padding: 24px 12px;
+    opacity: 0.6;
+}
+
+/* 响应式：移动端隐藏 */
+@media (max-width: 992px) {
+    .rec-sidebar { display: none !important; }
+}
+
+/* ================================
+   角色牆卡片 — 3D 翻轉效果
+   正面：圖片 + 角色名標籤
+   背面：角色資訊 + 全部互動按鈕
+   ================================ */
+
+/* 覆蓋 style.css 的舊卡片樣式，防止干擾 3D 翻轉 */
+#wallGrid .character-card {
+    perspective: 1000px;
+    background: transparent !important;
+    border: none !important;
+    overflow: visible !important;
+    border-radius: 0 !important;
+    cursor: default;
+}
+#wallGrid .character-card:hover {
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* 卡片外框：固定寬高，開啟 3D perspective */
+.character-card {
+    perspective: 1000px;
+    width: 100%;
+}
+
+/* 翻轉容器：preserve-3d，hover 時翻轉 */
+.card-flipper {
+    position: relative;
+    width: 100%;
+    /* 正面圖片高度 = 4:3 比例 */
+    padding-bottom: 133%;
+    transform-style: preserve-3d;
+    transition: transform 0.55s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    border-radius: 12px;
+}
+.character-card:hover .card-flipper {
+    transform: rotateX(180deg);
+}
+
+/* 正面 & 背面公共樣式 */
+.card-face {
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    overflow: hidden;
+}
+/* hover 翻轉時，確保背面在所有元素之上 */
+.character-card:hover .card-back {
+    z-index: 2;
+}
+
+/* ── 正面 ── */
+.card-front {
+    background: #f5f5f7;
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.8), 0 2px 12px rgba(0,0,0,0.08);
+    transition: box-shadow 0.4s ease;
+}
+.character-card:hover .card-front {
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.9), 0 8px 24px rgba(0,0,0,0.13);
+}
+.card-front .card-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.5s ease;
+}
+.character-card:hover .card-front .card-img {
+    transform: scale(1.04);
+}
+/* 正面底部角色名標籤 */
+.card-front-footer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 20px 8px 7px;
+    background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 100%);
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+.card-front-name {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #fff;
+    line-height: 1.3;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    letter-spacing: 0.02em;
+}
+/* 正面置信度badge */
+.card-front .confidence-badge {
+    font-size: 0.58rem;
+    font-weight: 600;
+    background: rgba(0,0,0,0.42);
+    color: #fff;
+    padding: 1px 5px;
+    border-radius: 5px;
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(4px);
+}
+
+/* ── 背面 ── */
+.card-back {
+    transform: rotateX(180deg);
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.8), 0 8px 24px rgba(0,0,0,0.12);
+    display: flex;
+    flex-direction: column;
+    padding: 10px 9px 8px;
+    gap: 0;
+}
+
+/* 背面頂部：詳情頁連結 */
+.card-back-link {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    flex-shrink: 0;
+    margin-bottom: 6px;
+}
+.card-back-name {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--ink, #1d1d1f);
+    line-height: 1.35;
+    word-break: break-word;
+}
+.card-back-name .name-item {
+    display: inline;
+}
+.card-back-name .name-sep {
+    margin: 0 2px;
+    color: var(--ink-muted, #aaa);
+}
+.card-back-anime {
+    font-size: 0.63rem;
+    color: var(--ink-muted, #888);
+    line-height: 1.3;
+    margin-top: 1px;
+    word-break: break-word;
+}
+/* badge 行 */
+.card-back-badges {
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
+/* 分隔線 */
+.card-back-divider {
+    width: 100%;
+    height: 1px;
+    background: var(--hairline, #ebebeb);
+    margin: 5px 0;
+    flex-shrink: 0;
+}
+
+/* 按鈕區：可滾動（多人角色多時） */
+.card-back-actions {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--hairline) transparent;
+}
+.card-back-actions::-webkit-scrollbar { width: 3px; }
+.card-back-actions::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 2px; }
+.card-back-actions::-webkit-scrollbar-track { background: transparent; }
+
+/* 單人卡片按鈕列 */
+.card-back-single-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* 多人：每個角色一行 */
+.back-char-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 0;
+    border-bottom: 1px solid var(--divider-soft, #f0f0f0);
+}
+.back-char-row:last-child {
+    border-bottom: none;
+}
+.back-char-label {
+    font-size: 0.62rem;
+    color: var(--ink-muted, #888);
+    max-width: 52px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+    line-height: 1.3;
+}
+
+/* ── 統一 action chip ── */
+.action-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 7px;
+    border-radius: 7px;
+    border: 1px solid var(--hairline, #e0e0e0);
+    background: #fff;
+    color: #666;
+    font-size: 0.65rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+    line-height: 1.4;
+    user-select: none;
+}
+.action-chip.action-sm {
+    padding: 1px 5px;
+    border-radius: 6px;
+    font-size: 0.6rem;
+    gap: 1px;
+    line-height: 1.35;
+}
+.action-chip i { font-size: 0.72rem; line-height: 1; }
+.action-chip.action-sm i { font-size: 0.62rem; }
+.action-chip .action-count,
+.action-chip.action-sm .action-count {
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: #999;
+}
+.action-chip:hover:not(:disabled) {
+    background: #f8f9fa;
+    border-color: #ccc;
+}
+.action-chip.active-green {
+    background: rgba(0,214,143,0.08);
+    border-color: rgba(0,214,143,0.25);
+    color: #00b377;
+}
+.action-chip.active-green .action-count { color: #00b377; }
+.action-chip.active-red {
+    background: rgba(255,101,132,0.06);
+    border-color: rgba(255,101,132,0.22);
+    color: #e84560;
+}
+.action-chip.active-red .action-count { color: #e84560; }
+.action-chip.disabled,
+.action-chip[disabled] {
+    opacity: 0.38;
+    cursor: not-allowed;
+    background: #f5f5f5;
+}
+
+/* 舊的 .btn-action 保持兼容（背面使用 action-chip） */
+.card-back .btn-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--hairline, #e0e0e0);
+    background: #fff;
+    color: #666;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+.card-back .btn-action:hover { background: #f8f9fa; border-color: #ccc; }
+.card-back .btn-like-accuracy.liked { background: rgba(0,214,143,0.08); border-color: rgba(0,214,143,0.25); color: #00b377; }
+.card-back .btn-like-char.liked-char { background: rgba(255,101,132,0.06); border-color: rgba(255,101,132,0.22); color: #e84560; }
+
+</style>
+<script>
+/* ── 卡片互動邏輯 ── */
+(function() {
+    // 桌面端：hover CSS 控制翻轉，此 JS 只處理「點正面空白處跳詳情」
+    // 注意：不要監聽 click，改為只在正面的特定區域加 onclick（HTML 端處理）
+
+    // 觸控設備：點卡片切換翻轉
+    if (matchMedia('(hover: none)').matches) {
+        document.addEventListener('click', function(e) {
+            var card = e.target.closest('.character-card');
+            if (!card) return;
+
+            // 點到背面按鈕/連結 → 不處理，讓按鈕正常作用
+            if (e.target.closest('.card-back button, .card-back a, .action-chip')) return;
+
+            // 點到正面 → 切換翻轉
+            card.classList.toggle('flipped');
+        }, true);
+    }
+})();
+</script>
+{% endblock %}
+
+{% block content %}
+
+<!-- 角色牆 -->
+<section class="character-wall py-5" id="character-wall">
+    <div class="container">
+        <div class="section-header d-flex align-items-center justify-content-between mb-4">
+            <h2 class="section-title" data-i18n="nav.character_wall">
+                <i class="bi bi-grid-3x3-gap-fill me-2 text-primary"></i>角色牆
+            </h2>
+            <span class="badge bg-primary rounded-pill" id="wallTotal">共 {{ records.total }} 条</span>
+        </div>
+
+        <!-- 筛选栏 -->
+        <div class="filter-bar" id="filterBar">
+            <input type="text" class="form-control filter-search" id="filterSearch"
+                   data-i18n="filter.search_placeholder"
+                   placeholder="🔍 搜尋角色名或作品..." oninput="applyFilters()">
+            <select class="form-select" id="filterAnime" onchange="applyFilters()">
+                <option value="" data-i18n="filter.all_anime">全部作品</option>
+            </select>
+            <select class="form-select" id="filterConf" onchange="applyFilters()">
+                <option value="0" data-i18n="filter.all_confidence">全部置信度</option>
+                <option value="80" data-i18n="filter.confidence_80">≥ 80%</option>
+                <option value="60" data-i18n="filter.confidence_60">≥ 60%</option>
+            </select>
+            <select class="form-select" id="filterSort" onchange="applyFilters()">
+                <option value="newest">最新</option>
+                <option value="confidence">置信度最高</option>
+                <option value="likes">最多點讚</option>
+            </select>
+        </div>
+
+        <!-- 作品标签筛选 -->
+        <div class="filter-tags" id="filterTags"></div>
+
+        {% if records.items %}
+        <div class="row g-4" id="wallGrid">
+            {% for record in records.items %}
+            <div class="col-6 col-sm-4 col-md-3 col-xl-2">
+                <div class="character-card" data-id="{{ record.id }}">
+                  <div class="card-flipper">
+
+                    {# ══ 正面 ══ #}
+                    <div class="card-face card-front">
+                        <img 
+                            src="{{ record.image_url or url_for('uploaded_file', filename=record.image_filename) }}"
+                            alt="{{ record.user_corrected_name or (record.top1_character_key | resolve_name(record.top1_character_name)) or '未知角色' }}"
+                            class="card-img"
+                            loading="lazy"
+                            onerror="this.src='/static/img/placeholder.svg'"
+                        >
+                        <span class="confidence-badge">
+                            {{ "%.0f"|format(record.top1_confidence or 0) }}%
+                        </span>
+                        <div class="card-front-footer"
+                             onclick="if(!this.closest('.character-card').classList.contains('flipped')) window.location.href='/record/{{ record.id }}'"
+                             style="cursor:pointer;">
+                            {% set chars = record_chars.get(record.id) if record_chars is defined else None %}
+                            <span class="card-front-name">
+                                {% if record.user_corrected_name %}
+                                {{ record.user_corrected_name }}
+                                {% elif chars %}
+                                {{ chars[0].get('_display_name', chars[0].name) }}{% for c in chars[1:] %} · {{ c.get('_display_name', c.name) }}{% endfor %}
+                                {% else %}
+                                {{ '未知角色' }}
+                                {% endif %}
+                            </span>
+                        </div>
+                    </div>
+
+                    {# ══ 背面 ══ #}
+                    {% set chars = record_chars.get(record.id) if record_chars is defined else None %}
+                    {% set is_multi = chars and (chars | length >= 2) %}
+                    <div class="card-face card-back">
+                        {# 頂部：角色名 + 作品名（點擊跳詳情） #}
+                        <a href="{{ url_for('record_detail', record_id=record.id) }}" class="card-back-link">
+                            <div class="card-back-name">
+                                {% if record.user_corrected_name %}
+                                {{ record.user_corrected_name }}
+                                {% elif chars %}
+                                {% for c in chars %}
+                                <span class="name-item">{{ c.get("_display_name", c.name) }}</span>{% if not loop.last %}<span class="name-sep">·</span>{% endif %}
+                                {% endfor %}
+                                {% else %}
+                                {{ '未知角色' }}
+                                {% endif %}
+                            </div>
+                            <div class="card-back-anime">
+                                {% if chars and chars[0].get('_display_anime') %}
+                                {{ chars[0]._display_anime }}
+                                {% else %}
+                                {{ record.user_corrected_anime or '' }}
+                                {% endif %}
+                            </div>
+                            {# 標籤行 #}
+                            <div class="card-back-badges">
+                                {% if is_multi %}
+                                <span class="badge bg-info-subtle text-info" style="font-size:0.52rem;padding:1px 4px;">
+                                    <i class="bi bi-people-fill"></i> {{ chars|length }}
+                                </span>
+                                {% elif record.character_count and record.character_count > 1 %}
+                                <span class="badge bg-info-subtle text-info" style="font-size:0.52rem;padding:1px 4px;">
+                                    <i class="bi bi-people-fill"></i> {{ record.character_count }}
+                                </span>
+                                {% endif %}
+                                {% if record.recognition_source in ('qwen-vl','qwen-open','qwen-verified') %}
+                                <span class="badge bg-primary-subtle text-primary" style="font-size:0.52rem;padding:1px 4px;">AI</span>
+                                {% elif record.recognition_source == 'local' %}
+                                <span class="badge bg-secondary-subtle text-secondary" style="font-size:0.52rem;padding:1px 4px;">本地</span>
+                                {% endif %}
+                                {% if record.is_qwen_new %}
+                                <span class="badge bg-warning-subtle text-warning" style="font-size:0.52rem;padding:1px 4px;">新</span>
+                                {% endif %}
+                            </div>
+                        </a>
+
+                        <div class="card-back-divider"></div>
+
+                        {# 按鈕區 #}
+                        <div class="card-back-actions">
+                        {% if is_multi %}
+                            {# 多人：每個角色獨立一行 #}
+                            {% for c in chars %}
+                            {% set ck = c.get('character_key', '') or c.get('name', '') %}
+                            {% set acc_count = c.get('like_accuracy_count', 0) %}
+                            {% set chr_count = c.get('like_character_count', 0) %}
+                            <div class="back-char-row" data-char-key="{{ ck | e }}">
+                                <span class="back-char-label" title="{{ c.get("_display_name", c.name) }}">{{ c.get("_display_name", c.name) }}</span>
+                                {# 識別正確 #}
+                                {% if c.get('corrected') %}
+                                <button class="action-chip action-sm disabled" disabled
+                                        data-char-key="{{ ck | e }}"
+                                        data-like-type="accuracy"
+                                        title="已糾錯">
+                                    <i class="bi bi-check-circle"></i>
+                                    <small class="action-count">{{ acc_count }}</small>
+                                </button>
+                                {% else %}
+                                <button class="action-chip action-sm btn-like-accuracy{% if acc_count > 0 %} active-green{% endif %}"
+                                        data-char-key="{{ ck | e }}"
+                                        data-like-type="accuracy"
+                                        onclick="likeRecord({{ record.id }}, 'accuracy', this, '{{ ck | e }}')"
+                                        title="{{ c.get('_display_name', c.name) }} 識別正確">
+                                    <i class="bi bi-check-circle{% if acc_count > 0 %}-fill{% endif %}"></i>
+                                    <small class="action-count">{{ acc_count }}</small>
+                                </button>
+                                {% endif %}
+                                {# 喜歡角色 #}
+                                <button class="action-chip action-sm btn-like-char{% if chr_count > 0 %} active-red{% endif %}"
+                                        data-char-key="{{ ck | e }}"
+                                        data-like-type="character"
+                                        onclick="likeRecord({{ record.id }}, 'character', this, '{{ ck | e }}')"
+                                        title="喜歡 {{ c.get('_display_name', c.name) }}">
+                                    <i class="bi bi-heart{% if chr_count > 0 %}-fill{% endif %}"></i>
+                                    <small class="action-count">{{ chr_count }}</small>
+                                </button>
+                                {# 糾錯 #}
+                                <button class="action-chip action-sm btn-correct"
+                                        onclick="showCorrectModalForChar({{ record.id }}, '{{ c.name | e }}', '{{ (c.get('anime') or '') | e }}', '{{ c.get('_display_name', c.name) | e }}')"
+                                        title="糾錯 {{ c.get('_display_name', c.name) }}">
+                                    <i class="bi bi-pencil-square"></i>
+                                </button>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            {# 單人 #}
+                            <div class="card-back-single-actions">
+                                <button
+                                    class="action-chip btn-like-accuracy {% if record.like_accuracy > 0 %}active-green{% endif %}"
+                                    data-like-type="accuracy"
+                                    onclick="likeRecord({{ record.id }}, 'accuracy', this)"
+                                    title="識別正確"
+                                >
+                                    <i class="bi bi-check-circle{% if record.like_accuracy > 0 %}-fill{% endif %}"></i>
+                                    <span class="action-count">{{ record.like_accuracy or 0 }}</span>
+                                </button>
+                                <button
+                                    class="action-chip btn-like-char {% if record.like_character > 0 %}active-red{% endif %}"
+                                    data-like-type="character"
+                                    onclick="likeRecord({{ record.id }}, 'character', this)"
+                                    title="喜歡角色"
+                                >
+                                    <i class="bi bi-heart{% if record.like_character > 0 %}-fill{% endif %}"></i>
+                                    <span class="action-count">{{ record.like_character or 0 }}</span>
+                                </button>
+                                <button 
+                                    class="action-chip btn-correct"
+                                    onclick="showCorrectModal({{ record.id }}, '{{ record.user_corrected_name or record.top1_character_name or '' }}')"
+                                    title="糾錯"
+                                >
+                                    <i class="bi bi-pencil-square"></i>
+                                </button>
+                            </div>
+                        {% endif %}
+                        </div>{# /card-back-actions #}
+                    </div>{# /card-back #}
+
+                  </div>{# /card-flipper #}
+                </div>{# /character-card #}
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- 分页 -->
+        {% if records.pages > 1 %}
+        <nav class="mt-5 d-flex justify-content-center">
+            <ul class="pagination pagination-custom">
+                {% if records.has_prev %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ records.prev_num }}">
+                        <i class="bi bi-chevron-left"></i>
+                    </a>
+                </li>
+                {% endif %}
+                
+                {% for page_num in records.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if page_num %}
+                    <li class="page-item {% if page_num == records.page %}active{% endif %}">
+                        <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
+                {% endfor %}
+                
+                {% if records.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ records.next_num }}">
+                        <i class="bi bi-chevron-right"></i>
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+
+        {% else %}
+        <!-- 空状态 -->
+        <div class="empty-state text-center py-5">
+            <div class="empty-icon">🎌</div>
+            <h4 class="mt-3 mb-2" data-i18n="wall.empty_title">角色牆空空如也</h4>
+            <p class="text-muted" data-i18n="wall.empty_desc">快去上傳第一張動漫角色圖片吧！</p>
+            <a href="{{ url_for('upload_page') }}" class="btn btn-primary rounded-pill mt-2">
+                <i class="bi bi-cloud-upload me-2"></i>上傳圖片
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</section>
+
+<!-- ══════════════════════════════════════
+     右侧識別記錄 — 3D球体侧边栏
+     ══════════════════════════════════════ -->
+<aside class="rec-sidebar" id="recSidebar" aria-label="識別記錄">
+    <!-- 头部：居中图标，悬停展开 -->
+    <div class="rec-sb-header">
+        <i class="bi bi-clock-history rec-sb-icon" title="識別記錄"></i>
+        <span class="rec-sb-title" data-i18n="wall.sidebar_title">識別記錄</span>
+        <a href="{{ url_for('history') }}" class="rec-sb-view-all" data-i18n="wall.view_all">全部 →</a>
+    </div>
+
+    <!-- 球体 + 列表容器 -->
+    <div class="rec-sb-fan" id="recSbFan">
+        <!-- 3D 球面（JS 动态生成） -->
+        <div class="rec-sb-sphere" id="recSbSphere"></div>
+
+        <!-- 展开列表（原 Jinja 模板） -->
+        <div class="rec-sb-list" id="recSbList">
+        {% if sidebar_records %}
+        {% for r in sidebar_records %}
+        <a href="{{ url_for('record_detail', record_id=r.id) }}" class="rec-sb-item" data-fan-index="{{ loop.index0 }}">
+            <img class="rec-sb-thumb"
+                 src="{{ r.image_url or url_for('uploaded_file', filename=r.image_filename) }}"
+                 alt=""
+                 loading="lazy"
+                 onerror="this.style.display='none'">
+            <div class="rec-sb-info">
+                <div class="rec-sb-char">{{ r.user_corrected_name or (r.top1_character_key | resolve_name(r.top1_character_name)) or '未知' }}</div>
+                <div class="rec-sb-meta">
+                    {{ r.user_corrected_anime or (r.top1_character_key | resolve_anime(r.top1_anime)) or '' }}
+                    {% if r.is_anime == False %}
+                    <span class="rec-sb-badge notanime">非動漫</span>
+                    {% elif r.recognition_source in ('qwen-open','qwen-verified','qwen-vl') %}
+                    <span class="rec-sb-badge ai">AI</span>
+                    {% elif r.recognition_source in ('local-only','local') %}
+                    <span class="rec-sb-badge local">本地</span>
+                    {% endif %}
+                </div>
+            </div>
+            <span class="rec-sb-time">{% if r.created_at %}{{ r.created_at.strftime('%H:%M') }}{% endif %}</span>
+        </a>
+        {% endfor %}
+        {% else %}
+        <div class="rec-sb-empty" data-i18n="wall.no_records">暫無識別記錄</div>
+        {% endif %}
+        </div>
+    </div>
+</aside>
+
+<!-- 糾錯 Modal -->
+<div class="modal fade" id="correctModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content modal-custom">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title">
+                    <i class="bi bi-pencil-square me-2 text-warning"></i>識別糾錯
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">
+                    当前識別：<strong id="currentCharName" class="text-primary">-</strong>
+                </p>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">正確的角色名稱</label>
+                    <input type="text" class="form-control form-control-custom" 
+                           id="correctNameInput" placeholder="請輸入正確的角色名">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">所屬作品（可選）</label>
+                    <input type="text" class="form-control form-control-custom" 
+                           id="correctAnimeInput" placeholder="請輸入作品名稱">
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-secondary rounded-pill" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-warning rounded-pill" onclick="submitCorrection()">
+                    <i class="bi bi-check-lg me-1"></i>提交糾錯
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/wall.js') }}?v=20260621g"></script>
+<script>
+// 填充作品下拉选单
+const animeList = {{ anime_list | tojson }};
+const filterAnime = document.getElementById('filterAnime');
+animeList.forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a;
+    opt.textContent = a;
+    filterAnime.appendChild(opt);
+});
+
+// 填入当前筛选参数（页面重载后还原）
+const params = new URLSearchParams(window.location.search);
+if (params.get('q')) document.getElementById('filterSearch').value = params.get('q');
+if (params.get('anime')) document.getElementById('filterAnime').value = params.get('anime');
+if (params.get('min_conf')) document.getElementById('filterConf').value = params.get('min_conf');
+if (params.get('sort')) document.getElementById('filterSort').value = params.get('sort');
+
+// 生成作品标签
+const filterTags = document.getElementById('filterTags');
+animeList.forEach(a => {
+    const tag = document.createElement('span');
+    tag.className = 'filter-tag' + (params.get('anime') === a ? ' active' : '');
+    tag.textContent = a;
+    tag.onclick = () => {
+        const current = new URLSearchParams(window.location.search);
+        if (current.get('anime') === a) {
+            current.delete('anime');
+        } else {
+            current.set('anime', a);
+        }
+        current.delete('page');
+        window.location.search = current.toString();
+    };
+    filterTags.appendChild(tag);
+});
+
+// 筛选变更时跳转
+function applyFilters() {
+    const p = new URLSearchParams();
+    const q = document.getElementById('filterSearch').value.trim();
+    const anime = document.getElementById('filterAnime').value;
+    const conf = document.getElementById('filterConf').value;
+    const sort = document.getElementById('filterSort').value;
+    if (q) p.set('q', q);
+    if (anime) p.set('anime', anime);
+    if (conf && conf !== '0') p.set('min_conf', conf);
+    if (sort && sort !== 'newest') p.set('sort', sort);
+    window.location.search = p.toString();
+}
+
+// ══════════════════════════════════════
+// 3D 球面画廊 — CSS 3D 透視 + 拖曳旋转
+// 完整 360° 球体，球心在容器右边缘
+// 左半圆在 sidebar 内可见，右半圆 overflow 隐藏
+// ══════════════════════════════════════
+(function() {
+    var sidebar = document.getElementById('recSidebar');
+    var sphereEl = document.getElementById('recSbSphere');
+    if (!sidebar || !sphereEl) return;
+
+    // 从列表容器收集圖片 URL
+    var listEl = document.getElementById('recSbList');
+    var allThumbs = listEl ? listEl.querySelectorAll('.rec-sb-thumb') : [];
+    var imgPool = [];
+    allThumbs.forEach(function(t) {
+        var src = t.getAttribute('src');
+        if (src && src.indexOf('data:') === -1) imgPool.push(src);
+    });
+
+    if (imgPool.length === 0) return;
+
+    // ── 参数 ──
+    var RADIUS = 160;           // 球半径
+    var ROWS = 10;              // 垂直行数
+    var ANGLE_Y = 18;           // 每格垂直角度，10×18=180°
+    var BASE_COLS = 18;         // 赤道列数（最大），两极递减
+    var THUMB_W = 26, THUMB_H = 18;  // 缩略图
+
+    // ── 旋转状态 ──
+    var rotY = 0;               // 初始水平旋转
+    var rotX = 0;
+    var autoSpeed = 0.01;       // 自動旋转速度
+    var isDragging = false;
+    var isHovering = false;
+    var lastX = 0, lastY = 0;
+    var animId = null;
+    var scrollRotX = 0;         // 滚轮驱动的垂直旋转目标
+
+    // ── 构建球面图块（纬度自适应列数：两极少、赤道多，完整 360°）──
+    sphereEl.innerHTML = '';
+    var imgIdx = 0;
+
+    for (var row = 0; row < ROWS; row++) {
+        var phiDeg = (row - (ROWS - 1) / 2) * ANGLE_Y;  // 纬度角
+        var phiRad = phiDeg * Math.PI / 180;
+        var colsInRow = Math.max(3, Math.round(BASE_COLS * Math.cos(phiRad)));
+        var angleX = 360 / colsInRow;  // 完整 360° 等分
+
+        for (var col = 0; col < colsInRow; col++) {
+            var imgSrc = imgPool[imgIdx % imgPool.length];
+            imgIdx++;
+
+            var itemRotY = (col - (colsInRow - 1) / 2) * angleX;  // 水平，完整 360° 环绕
+            var itemRotX = phiDeg;  // 垂直 = 当前纬度
+
+            var item = document.createElement('a');
+            item.className = 'rec-sb-item';
+            item.href = '#';
+            item.style.position = 'absolute';
+            item.style.left = '0px';
+            item.style.top = '0px';
+            item.style.width = THUMB_W + 'px';
+            item.style.height = THUMB_H + 'px';
+            // 图块中心对齐球心
+            item.style.marginLeft = Math.round(-THUMB_W / 2) + 'px';
+            item.style.marginTop = Math.round(-THUMB_H / 2) + 'px';
+            // CSS 3D transform
+            item.style.transformStyle = 'preserve-3d';
+            item.style.transform = 'rotateY(' + itemRotY.toFixed(1) + 'deg) rotateX(' + (-itemRotX).toFixed(1) + 'deg) translateZ(' + RADIUS + 'px)';
+
+            var img = document.createElement('img');
+            img.className = 'rec-sb-thumb';
+            img.src = imgSrc;
+            img.alt = '';
+            img.loading = 'lazy';
+            img.onerror = function() { this.style.display = 'none'; };
+
+            item.appendChild(img);
+            sphereEl.appendChild(item);
+        }
+    }
+
+    // ── 应用整体球体旋转 ──
+    function applySphereTransform() {
+        sphereEl.style.transform = 'translateZ(' + Math.round(-RADIUS) + 'px) rotateX(' + rotX.toFixed(2) + 'deg) rotateY(' + rotY.toFixed(2) + 'deg)';
+    }
+
+    applySphereTransform();
+
+    // ── 自動旋转动画 ──
+    function animate() {
+        if (!isDragging && !isHovering) {
+            rotY += autoSpeed;
+            if (rotY > 360) rotY -= 360;
+            if (rotY < -360) rotY += 360;
+            // 平滑逼近滚轮目标
+            rotX += (scrollRotX - rotX) * 0.08;
+            applySphereTransform();
+        }
+        animId = requestAnimationFrame(animate);
+    }
+    animId = requestAnimationFrame(animate);
+
+    // ── 滚轮垂直旋转 ──
+    window.addEventListener('wheel', function(e) {
+        if (isHovering) return;
+        scrollRotX += e.deltaY * 0.15;
+        scrollRotX = Math.max(-60, Math.min(60, scrollRotX));
+    }, { passive: true });
+
+    // ── 鼠标拖曳旋转 ──
+    sidebar.addEventListener('mousedown', function(e) {
+        if (isHovering) return;
+        isDragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        var dx = e.clientX - lastX;
+        var dy = e.clientY - lastY;
+        rotY += dx * 0.3;
+        rotX += dy * 0.15;
+        rotX = Math.max(-25, Math.min(25, rotX));
+        applySphereTransform();
+        lastX = e.clientX;
+        lastY = e.clientY;
+    });
+
+    window.addEventListener('mouseup', function() {
+        isDragging = false;
+    });
+
+    // ── 触摸支援 ──
+    sidebar.addEventListener('touchstart', function(e) {
+        if (isHovering) return;
+        isDragging = true;
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+    }, { passive: false });
+
+    sidebar.addEventListener('touchmove', function(e) {
+        if (!isDragging) return;
+        var dx = e.touches[0].clientX - lastX;
+        var dy = e.touches[0].clientY - lastY;
+        rotY += dx * 0.3;
+        rotX += dy * 0.15;
+        rotX = Math.max(-25, Math.min(25, rotX));
+        applySphereTransform();
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+        e.preventDefault();
+    }, { passive: false });
+
+    sidebar.addEventListener('touchend', function() {
+        isDragging = false;
+    });
+
+    // ── 悬停展开 ──
+    sidebar.addEventListener('mouseenter', function() {
+        isHovering = true;
+    });
+
+    sidebar.addEventListener('mouseleave', function() {
+        isHovering = false;
+    });
+
+})();
+</script>
+{% endblock %}

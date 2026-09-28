@@ -1,0 +1,33 @@
+{
+  "split": {
+    "train": 1424,
+    "val": 170,
+    "test": 196
+  },
+  "characters": [
+    "naruto_uzumaki",
+    "sasuke_uchiha",
+    "sakura_haruno",
+    "kakashi_hatake",
+    "monkey_d_luffy",
+    "roronoa_zoro",
+    "nami",
+    "sanji",
+    "eren_yeager",
+    "mikasa_ackerman",
+    "tanjiro_kamado",
+    "nezuko_kamado",
+    "izuku_midoriya",
+    "katsuki_bakugo",
+    "goku",
+    "vegeta",
+    "ichigo_kurosaki",
+    "rukia_kuchiki",
+    "konata_izumi",
+    "rem"
+  ],
+  "image_size": 224,
+  "train_ratio": 0.8,
+  "val_ratio": 0.1,
+  "test_ratio": 0.1
+}

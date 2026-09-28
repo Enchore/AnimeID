@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}資料看板 - AnimeID{% endblock %}
+
+{% block extra_css %}
+<style>
+.stat-card {
+    background: var(--canvas);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    text-align: center;
+    transition: var(--transition);
+}
+.stat-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-card-hover); }
+.stat-card .stat-num {
+    font-size: 2.5rem;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+}
+.stat-card .stat-lbl { color: var(--ink-muted); font-size: 0.88rem; font-weight: 400; }
+.chart-card {
+    background: var(--canvas);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.chart-title {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 1rem;
+    letter-spacing: -0.01em;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <h2 class="section-title" data-i18n="dashboard.title">
+            <i class="bi bi-bar-chart-fill me-2 text-primary"></i>資料看板
+        </h2>
+        <small class="text-muted" data-i18n="dashboard.subtitle">即時統計 · 自動重新整理</small>
+    </div>
+
+    <!-- 概览卡片 -->
+    <div class="row g-3 mb-4" id="overviewCards">
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-num" id="ov-total">-</div>
+                <div class="stat-lbl" data-i18n="dashboard.stat_total"><i class="bi bi-camera me-1"></i>總識別次數</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-num" id="ov-likes">-</div>
+                <div class="stat-lbl" data-i18n="dashboard.stat_likes"><i class="bi bi-heart me-1"></i>累計点赞</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-num" id="ov-corrections">-</div>
+                <div class="stat-lbl" data-i18n="dashboard.stat_corrections"><i class="bi bi-pencil me-1"></i>用戶糾錯</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-num" id="ov-conf">-</div>
+                <div class="stat-lbl" data-i18n="dashboard.stat_confidence"><i class="bi bi-bullseye me-1"></i>平均置信度</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图表区域 -->
+    <div class="row g-4">
+        <!-- 熱門角色 -->
+        <div class="col-lg-6">
+            <div class="chart-card">
+                <div class="chart-title" data-i18n="dashboard.chart_popular">
+                    <i class="bi bi-fire me-2 text-warning"></i>角色識別热度
+                </div>
+                <div id="chartPopular" style="height: 350px;"></div>
+            </div>
+        </div>
+
+        <!-- 置信度分佈 -->
+        <div class="col-lg-6">
+            <div class="chart-card">
+                <div class="chart-title" data-i18n="dashboard.chart_confidence">
+                    <i class="bi bi-pie-chart me-2 text-primary"></i>置信度分佈
+                </div>
+                <div id="chartConfidence" style="height: 350px;"></div>
+            </div>
+        </div>
+
+        <!-- 趨勢折线图 -->
+        <div class="col-12">
+            <div class="chart-card">
+                <div class="chart-title" data-i18n="dashboard.chart_trend">
+                    <i class="bi bi-graph-up me-2 text-success"></i>識別趨勢（近30天）
+                </div>
+                <div id="chartTrend" style="height: 300px;"></div>
+            </div>
+        </div>
+
+        <!-- 時段热力图 -->
+        <div class="col-12">
+            <div class="chart-card">
+                <div class="chart-title" data-i18n="dashboard.chart_hourly">
+                    <i class="bi bi-clock me-2 text-accent"></i>用戶活躍時段
+                </div>
+                <div id="chartHourly" style="height: 160px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<script>
+const bgColor = '#ffffff';
+const cardColor = '#fafafc';
+const textColor = '#1d1d1f';
+const mutedColor = '#86868b';
+const primaryColor = '#0066cc';
+const accentColor = '#ff3b30';
+const successColor = '#34c759';
+const warningColor = '#ff9500';
+
+// 初始化图表
+const chartPopular = echarts.init(document.getElementById('chartPopular'), null, {renderer: 'canvas'});
+const chartConfidence = echarts.init(document.getElementById('chartConfidence'), null, {renderer: 'canvas'});
+const chartTrend = echarts.init(document.getElementById('chartTrend'), null, {renderer: 'canvas'});
+const chartHourly = echarts.init(document.getElementById('chartHourly'), null, {renderer: 'canvas'});
+
+// 加载資料
+async function loadDashboard() {
+    try {
+        const [statsRes, echartsRes] = await Promise.all([
+            fetch('/api/stats'),
+            fetch('/api/echarts-data'),
+        ]);
+        
+        const stats = await statsRes.json();
+        const echarts_data = await echartsRes.json();
+
+        // 概览資料
+        document.getElementById('ov-total').textContent = stats.total_records.toLocaleString();
+        document.getElementById('ov-likes').textContent = stats.total_likes.toLocaleString();
+        document.getElementById('ov-corrections').textContent = (stats.total_corrections || 0).toLocaleString();
+        document.getElementById('ov-conf').textContent = (stats.avg_confidence || 0).toFixed(1) + '%';
+
+        // 渲染图表
+        if (echarts_data.popular_bar) {
+            chartPopular.setOption(echarts_data.popular_bar);
+        }
+        if (echarts_data.confidence_pie) {
+            chartConfidence.setOption(echarts_data.confidence_pie);
+        }
+        if (echarts_data.trend_line) {
+            chartTrend.setOption(echarts_data.trend_line);
+        }
+        if (echarts_data.hourly_heatmap) {
+            chartHourly.setOption(echarts_data.hourly_heatmap);
+        }
+        
+    } catch(e) {
+        console.error('資料加载失败:', e);
+        // 显示模拟資料
+        renderMockCharts();
+    }
+}
+
+// 模拟資料（API不可用时）
+function renderMockCharts() {
+    const mockChars = ['漩涡鸣人','路飞','艾伦·耶格尔','炭治郎','绿谷出久','三笠','佐助','索隆','贝吉塔','雷姆'];
+    const mockCounts = [87,74,65,58,52,49,45,41,38,32];
+    
+    chartPopular.setOption({
+        tooltip: {trigger: 'axis'},
+        grid: {left: '22%', right: '8%'},
+        xAxis: {type: 'value', axisLabel: {color: mutedColor}},
+        yAxis: {type: 'category', data: [...mockChars].reverse(), axisLabel: {color: textColor}},
+        series: [{
+            type: 'bar', data: [...mockCounts].reverse(),
+            itemStyle: {
+                color: {type:'linear',x:0,y:0,x2:1,y2:0,
+                    colorStops:[{offset:0,color:primaryColor},{offset:1,color:'#0071e3'}]}
+            },
+            barMaxWidth: 28,
+            label: {show: true, position: 'right', color: textColor},
+        }]
+    });
+
+    chartConfidence.setOption({
+        tooltip: {trigger:'item', formatter:'{b}: {c}次 ({d}%)'},
+        series: [{
+            type: 'pie', radius: ['40%', '70%'],
+            data: [
+                {name:'90-100%', value:150},
+                {name:'80-90%', value:87},
+                {name:'70-80%', value:54},
+                {name:'60-70%', value:32},
+                {name:'<60%', value:18},
+            ],
+            label: {color: textColor},
+        }],
+        color: [successColor, '#5ac8fa', primaryColor, warningColor, accentColor],
+    });
+    
+    document.getElementById('ov-total').textContent = '341';
+    document.getElementById('ov-likes').textContent = '892';
+    document.getElementById('ov-corrections').textContent = '47';
+    document.getElementById('ov-conf').textContent = '84.3%';
+}
+
+// 响应式
+window.addEventListener('resize', () => {
+    [chartPopular, chartConfidence, chartTrend, chartHourly].forEach(c => c.resize());
+});
+
+loadDashboard();
+</script>
+{% endblock %}

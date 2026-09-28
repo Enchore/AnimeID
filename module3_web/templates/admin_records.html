@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>識別記錄管理 — AnimeID 管理員</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        .admin-header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 1rem 0;
+        }
+        .admin-header .container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .records-table th { white-space: nowrap; }
+        .thumb {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 2px solid #eee;
+        }
+        .source-badge {
+            font-size: 0.75rem;
+            padding: 0.25em 0.5em;
+        }
+    </style>
+</head>
+<body>
+    <!-- 管理員欄位 -->
+    <div class="admin-header">
+        <div class="container">
+            <div>
+                <h4>📋 識別記錄管理</h4>
+                <small class="opacity-75">檢視、刪除、編輯前台識別記錄</small>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <a href="/admin/reviews" class="btn btn-outline-light btn-sm rounded-pill">
+                    <i class="bi bi-clock-history me-1"></i>審核隊列
+                </a>
+                <a href="/admin/logs" class="btn btn-outline-light btn-sm rounded-pill">
+                    <i class="bi bi-journal-text me-1"></i>操作日誌
+                </a>
+                <a href="/admin" class="btn btn-outline-light btn-sm rounded-pill">
+                    <i class="bi bi-house me-1"></i>首頁
+                </a>
+                <a href="{{ url_for('admin_logout') }}" class="btn btn-outline-light btn-sm rounded-pill">
+                    <i class="bi bi-box-arrow-right me-1"></i>登出
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="container py-4">
+        <!-- 搜尋列 -->
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <input type="text" class="form-control" id="searchInput"
+                       placeholder="搜尋角色名、作品名、UUID...">
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="sourceFilter">
+                    <option value="">全部來源</option>
+                    <option value="qwen-open">Qwen 開放識別</option>
+                    <option value="qwen-verified">Qwen 交叉驗證</option>
+                    <option value="local-only">本地模型</option>
+                    <option value="mock">Mock 測試</option>
+                </select>
+            </div>
+            <div class="col-md-3 text-end">
+                <span class="text-muted" id="totalCount"></span>
+            </div>
+        </div>
+
+        <!-- 記錄表格 -->
+        <div class="table-responsive">
+            <table class="table table-hover align-middle" id="recordsTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>縮圖</th>
+                        <th>角色名</th>
+                        <th>作品</th>
+                        <th>置信度</th>
+                        <th>來源</th>
+                        <th>👍</th>
+                        <th>❤️</th>
+                        <th>糾錯</th>
+                        <th>日期</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="recordsBody">
+                    <tr>
+                        <td colspan="11" class="text-center py-5 text-muted">
+                            <div class="spinner-border" role="status"></div>
+                            <p class="mt-2">載入中...</p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 分頁 -->
+        <nav>
+            <ul class="pagination justify-content-center" id="pagination"></ul>
+        </nav>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- 編輯記錄 Modal -->
+    <div class="modal fade" id="editRecordModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>編輯識別記錄</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="editRecordId">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">角色名稱</label>
+                        <input type="text" class="form-control" id="editCharName"
+                               placeholder="修改角色名稱">
+                        <div class="form-text">修改後將直接顯示在前台</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">作品名稱</label>
+                        <input type="text" class="form-control" id="editAnimeName"
+                               placeholder="修改作品名稱（留空設為未知）">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="saveRecordEdit">
+                        <i class="bi bi-check-lg me-1"></i>儲存
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    let currentPage = 1;
+    let currentSearch = '';
+    let currentSource = '';
+
+    // 載入記錄
+    async function loadRecords(page = 1) {
+        currentPage = page;
+        const tbody = document.getElementById('recordsBody');
+        tbody.innerHTML = '<tr><td colspan="11" class="text-center py-5 text-muted"><div class="spinner-border"></div><p class="mt-2">載入中...</p></td></tr>';
+
+        const params = new URLSearchParams({
+            page: page,
+            per_page: 20,
+        });
+        if (currentSearch) params.set('search', currentSearch);
+        if (currentSource) params.set('source', currentSource);
+
+        try {
+            const resp = await fetch(`/api/admin/records?${params.toString()}`);
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error || '載入失敗');
+
+            renderTable(data.records);
+            renderPagination(data.page, data.pages, data.total);
+            document.getElementById('totalCount').textContent = `共 ${data.total} 筆記錄`;
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="11" class="text-center py-5 text-danger">載入失敗: ${e.message}</td></tr>`;
+        }
+    }
+
+    // 渲染表格
+    function renderTable(records) {
+        const tbody = document.getElementById('recordsBody');
+        if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center py-5 text-muted">暫無記錄</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = records.map(r => {
+            const sourceClass = {
+                'qwen-open': 'bg-info',
+                'qwen-verified': 'bg-primary',
+                'local-only': 'bg-warning',
+                'mock': 'bg-secondary',
+            }[r.recognition_source] || 'bg-secondary';
+
+            return `
+            <tr>
+                <td>${r.id}</td>
+                <td><img src="${r.image_url}" class="thumb" alt="縮圖"
+                         onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2260%22><rect fill=%22%23eee%22 width=%2260%22 height=%2260%22/><text x=%2230%22 y=%2235%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2210%22>無圖</text></svg>'"></td>
+                <td><strong>${r.top1_character_name || '<span class="text-muted">未知</span>'}</strong></td>
+                <td>${r.top1_anime || '<span class="text-muted">未知</span>'}</td>
+                <td>${r.top1_confidence ? r.top1_confidence.toFixed(1) + '%' : '-'}</td>
+                <td><span class="badge ${sourceClass} source-badge">${r.recognition_source || 'unknown'}</span></td>
+                <td>${r.like_accuracy || 0}</td>
+                <td>${r.like_character || 0}</td>
+                <td>${r.corrections || 0}</td>
+                <td>${r.created_at ? new Date(r.created_at).toLocaleDateString('zh-TW') : '-'}</td>
+                <td>
+                    <button class="btn btn-outline-primary btn-sm rounded-pill me-1" onclick="editRecord(${r.id}, '${(r.top1_character_name || '').replace(/'/g, "\\'")}', '${(r.top1_anime || '').replace(/'/g, "\\'")}')">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm rounded-pill" onclick="deleteRecord(${r.id})">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            </tr>`;
+        }).join('');
+    }
+
+    // 渲染分頁
+    function renderPagination(page, pages, total) {
+        const ul = document.getElementById('pagination');
+        if (pages <= 1) { ul.innerHTML = ''; return; }
+
+        let html = '';
+        // 上一頁
+        html += `<li class="page-item ${page <= 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="loadRecords(${page-1}); return false;">上一頁</a>
+        </li>`;
+        // 頁碼
+        for (let i = 1; i <= pages; i++) {
+            if (Math.abs(i - page) <= 2 || i === 1 || i === pages) {
+                html += `<li class="page-item ${i === page ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="loadRecords(${i}); return false;">${i}</a>
+                </li>`;
+            } else if (Math.abs(i - page) === 3) {
+                html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+            }
+        }
+        // 下一頁
+        html += `<li class="page-item ${page >= pages ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="loadRecords(${page+1}); return false;">下一頁</a>
+        </li>`;
+        ul.innerHTML = html;
+    }
+
+    // 編輯記錄
+    function editRecord(id, name, anime) {
+        document.getElementById('editRecordId').value = id;
+        document.getElementById('editCharName').value = name || '';
+        document.getElementById('editAnimeName').value = anime || '';
+        new bootstrap.Modal(document.getElementById('editRecordModal')).show();
+    }
+
+    document.getElementById('saveRecordEdit').addEventListener('click', async function() {
+        const id = document.getElementById('editRecordId').value;
+        const name = document.getElementById('editCharName').value.trim();
+        const anime = document.getElementById('editAnimeName').value.trim();
+
+        if (!name) { alert('角色名稱不能為空'); return; }
+
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 儲存中...';
+
+        try {
+            const resp = await fetch(`/api/admin/records/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    top1_character_name: name,
+                    top1_anime: anime,
+                }),
+            });
+            const data = await resp.json();
+            if (data.success) {
+                bootstrap.Modal.getInstance(document.getElementById('editRecordModal')).hide();
+                loadRecords(currentPage);
+            } else {
+                alert(data.error || '儲存失敗');
+            }
+        } catch (e) {
+            alert('請求失敗: ' + e.message);
+        } finally {
+            this.disabled = false;
+            this.innerHTML = '<i class="bi bi-check-lg me-1"></i>儲存';
+        }
+    });
+
+    // 刪除記錄
+    async function deleteRecord(id) {
+        if (!confirm(`確定刪除記錄 #${id}？\n此操作無法復原！`)) return;
+
+        try {
+            const resp = await fetch(`/api/admin/records/${id}`, { method: 'DELETE' });
+            const data = await resp.json();
+            if (data.success) {
+                loadRecords(currentPage);
+            } else {
+                alert(data.error || '刪除失敗');
+            }
+        } catch (e) {
+            alert('請求失敗: ' + e.message);
+        }
+    }
+
+    // 搜尋
+    let searchTimer = null;
+    document.getElementById('searchInput').addEventListener('input', function() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+            currentSearch = this.value.trim();
+            loadRecords(1);
+        }, 500);
+    });
+
+    document.getElementById('sourceFilter').addEventListener('change', function() {
+        currentSource = this.value;
+        loadRecords(1);
+    });
+
+    // 初始載入
+    loadRecords(1);
+    </script>
+</body>
+</html>

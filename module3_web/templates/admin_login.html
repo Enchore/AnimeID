@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}管理員后台 - AnimeID{% endblock %}
+
+{% block extra_css %}
+<style>
+    .admin-login-wrapper {
+        min-height: 70vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .admin-login-card {
+        background: var(--canvas-paper, white);
+        border-radius: 16px;
+        padding: 2.5rem;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+        width: 100%;
+        max-width: 400px;
+        border: 1px solid var(--hairline, #eee);
+    }
+    .admin-login-icon {
+        font-size: 3rem;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    .admin-login-title {
+        text-align: center;
+        font-family: 'Noto Serif SC', serif;
+        font-weight: 600;
+        margin-bottom: 2rem;
+        color: var(--ink, #333);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="admin-login-wrapper">
+        <div class="admin-login-card">
+            <div class="admin-login-icon">🔧</div>
+            <h3 class="admin-login-title" data-i18n="admin.login_title">AnimeID 管理員后台</h3>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div>
+                {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show py-2">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <form method="POST" action="{{ url_for('admin_login_post') }}">
+                <div class="mb-3">
+                    <label for="password" class="form-label" data-i18n="admin.password_label">管理員密码</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+                        <input type="password" class="form-control" id="password" name="password"
+                               placeholder="請輸入管理員密碼" required autofocus>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-dark w-100 rounded-pill py-2">
+                    <i class="bi bi-box-arrow-in-right me-2"></i><span data-i18n="admin.login_btn">登入</span>
+                </button>
+            </form>
+
+            <div class="text-center mt-3">
+                <a href="{{ url_for('character_wall') }}" class="text-muted small text-decoration-none">
+                    <i class="bi bi-arrow-left me-1"></i><span data-i18n="admin.back_wall">返回角色牆</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

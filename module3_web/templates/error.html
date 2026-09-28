@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} 錯誤 - AnimeID{% endblock %}
+{% block content %}
+<div class="container py-5 text-center">
+    <div class="error-page">
+        <div class="error-code">{{ code }}</div>
+        <h3 class="mt-3 mb-2">{{ message }}</h3>
+        <p class="text-muted" data-i18n="error.desc">別擔心，去主頁看看角色牆吧</p>
+        <a href="{{ url_for('index') }}" class="btn btn-primary rounded-pill mt-3">
+            <i class="bi bi-house-fill me-2"></i><span data-i18n="error.back_home">返回主頁</span>
+        </a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>審核隊列 — AnimeID 管理員</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- i18n support -->
+    <script>
+    // Admin page: minimal i18n init (lang detection only, apply after load)
+    (function() {
+        var lang = document.cookie.match(/(?:^|;\s*)lang=([^;]+)/)?.[1]
+            || navigator.language?.split('-')[0] || 'zh';
+        if (lang === 'zh') {
+            var full = document.cookie.match(/(?:^|;\s*)lang=([^;]+)/)?.[1] || navigator.language || 'zh-CN';
+            lang = /TW|HK|MO/.test(full) ? 'zh-TW' : 'zh-CN';
+        }
+        document.documentElement.lang = lang;
+        window._adminLang = lang;
+    })();
+    </script>
+    <style>
+        .admin-header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 1rem 0;
+        }
+        .admin-header .container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .admin-header h4 {
+            margin: 0;
+            font-family: 'Noto Serif SC', serif;
+        }
+        .review-tabs { margin-bottom: 1.5rem; }
+        .review-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+            margin-bottom: 1rem;
+            overflow: hidden;
+            transition: box-shadow 0.2s;
+        }
+        .review-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .review-card .card-body { padding: 1.25rem; }
+        .review-img {
+            width: 120px;
+            height: 120px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 2px solid #eee;
+        }
+        .review-original, .review-correction {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+        .review-original {
+            background: #fff3cd;
+            border-left: 3px solid #ffc107;
+        }
+        .review-correction {
+            background: #d1ecf1;
+            border-left: 3px solid #17a2b8;
+        }
+        .qwen-verdict {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+        .qwen-agree { background: #d4edda; border-left: 3px solid #28a745; }
+        .qwen-disagree { background: #f8d7da; border-left: 3px solid #dc3545; }
+        .qwen-unknown { background: #e2e3e5; border-left: 3px solid #6c757d; }
+        .admin-verify {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+        }
+        .admin-verify-pending { background: #fff3cd; border-left: 3px solid #ffc107; }
+        .admin-verify-passed { background: #d4edda; border-left: 3px solid #28a745; }
+        .admin-verify-failed { background: #f8d7da; border-left: 3px solid #dc3545; }
+        .admin-verify-skip { background: #e2e3e5; border-left: 3px solid #6c757d; }
+        @keyframes pulse-badge {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .animate-pulse { animation: pulse-badge 1.5s ease-in-out infinite; }
+        .review-actions { display: flex; gap: 0.5rem; }
+        .review-meta { font-size: 0.8rem; color: #888; }
+        .badge-source { font-size: 0.75rem; }
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: #999;
+        }
+        .empty-state i { font-size: 4rem; display: block; margin-bottom: 1rem; }
+        .tab-count { font-size: 0.8rem; opacity: 0.7; }
+    </style>
+</head>
+<body>
+    <!-- 管理員頂欄 -->
+    <div class="admin-header">
+        <div class="container">
+            <div>
+                <h4>🔧 AnimeID 管理員後臺</h4>
+                <small class="opacity-75">審核隊列 — 人工篩查用戶糾錯</small>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <a href="{{ url_for('admin_records') }}" class="btn btn-outline-light btn-sm rounded-pill">
+                    <i class="bi bi-list-ul me-1"></i>記錄管理
+                </a>
+                <span class="badge bg-light text-dark" id="pendingCount">-</span>
+                <a href="{{ url_for('admin_logout') }}" class="btn btn-outline-light btn-sm rounded-pill">
+                    <i class="bi bi-box-arrow-right me-1"></i>登出
+                </a>
+                <a href="{{ url_for('character_wall') }}" class="btn btn-outline-light btn-sm rounded-pill">
+                    <i class="bi bi-house me-1"></i>前臺
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- i18n 補全狀態卡片 -->
+    <div class="container mb-4">
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card border-0 shadow-sm" id="i18nEnrichCard">
+                    <div class="card-body">
+                        <h6 class="card-title mb-3">
+                            <i class="bi bi-translate me-2"></i>i18n 數據補全
+                        </h6>
+                        <div class="row align-items-center">
+                            <div class="col-md-6">
+                                <small class="text-muted">調度器狀態：</small>
+                                <span id="i18nSchedulerStatus" class="badge bg-secondary">載入中...</span>
+                            </div>
+                            <div class="col-md-6">
+                                <small class="text-muted">上次運行：</small>
+                                <span id="i18nLastRun" class="fw-500">-</span>
+                            </div>
+                        </div>
+                        <div class="row mt-2">
+                            <div class="col-md-6">
+                                <small class="text-muted">已掃描：</small>
+                                <span id="i18nScanned" class="fw-500">-</span> 條
+                            </div>
+                            <div class="col-md-6">
+                                <small class="text-muted">已補全：</small>
+                                <span id="i18nEnriched" class="fw-500 text-success">-</span> 條
+                            </div>
+                        </div>
+                        <!-- 數據源選項 -->
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <small class="text-muted">數據源：</small>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="chkUseBangumi" checked>
+                                    <label class="form-check-label" for="chkUseBangumi">
+                                        <i class="bi bi-database me-1"></i>Bangumi
+                                    </label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="chkUseAnilist" checked>
+                                    <label class="form-check-label" for="chkUseAnilist">
+                                        <i class="bi bi-globe me-1"></i>AniList
+                                    </label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="chkUseLLM">
+                                    <label class="form-check-label" for="chkUseLLM">
+                                        <i class="bi bi-robot me-1"></i>LLM 翻譯
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent border-0 d-flex justify-content-between align-items-center">
+                        <small class="text-muted" id="i18nMessage"></small>
+                        <button class="btn btn-primary btn-sm" id="btnManualEnrich">
+                            <i class="bi bi-play-circle me-1"></i>手動補全
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container py-4">
+        <!-- Tab 切換 -->
+        <ul class="nav nav-pills review-tabs" id="reviewTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="pending-tab" data-status="pending" type="button">
+                    ⏳ 待審核 <span class="tab-count" id="pendingTabCount"></span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="approved-tab" data-status="approved" type="button">
+                    ✅ 已核准 <span class="tab-count" id="approvedTabCount"></span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="rejected-tab" data-status="rejected" type="button">
+                    ❌ 已駁回 <span class="tab-count" id="rejectedTabCount"></span>
+                </button>
+            </li>
+        </ul>
+
+        <!-- 審核列表 -->
+        <div id="reviewsContainer">
+            <div class="text-center py-5 text-muted">
+                <div class="spinner-border" role="status"></div>
+                <p class="mt-2">載入中...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- 編輯審核 Modal -->
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>編輯審核項目</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="editReviewId">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">🔍 原始識別</label>
+                        <input type="text" class="form-control bg-light" id="editOriginalInfo" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">✏️ 用戶糾錯（原始）</label>
+                        <input type="text" class="form-control bg-light" id="editCorrectOriginal" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editCorrectName" class="form-label fw-bold">🔧 修正後角色名 <span class="text-muted fw-normal">(管理員編輯)</span></label>
+                        <input type="text" class="form-control" id="editCorrectName"
+                               placeholder="修改為正確的角色名（留空保持不變）">
+                        <div class="form-text">處理譯名差異、繁簡統一。例如：初春飾利 → 初春饰利</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editCorrectAnime" class="form-label fw-bold">🔧 修正後作品名</label>
+                        <input type="text" class="form-control" id="editCorrectAnime"
+                               placeholder="修改為正確的作品名（留空保持不變）">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editNote" class="form-label fw-bold">備註 <span class="text-muted fw-normal">(可選)</span></label>
+                        <input type="text" class="form-control" id="editNote"
+                               placeholder="例如：簡繁轉換、譯名統一等">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="saveEdit(this)">
+                        <i class="bi bi-check-lg me-1"></i>儲存編輯
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    let currentStatus = 'pending';
+
+    // Tab 切換
+    document.querySelectorAll('#reviewTabs button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#reviewTabs button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentStatus = btn.dataset.status;
+            loadReviews(currentStatus);
+        });
+    });
+
+    // 編輯 + 前後一致 按鈕事件委託（因為卡片是動態渲染的）
+    document.getElementById('reviewsContainer').addEventListener('click', (e) => {
+        const editBtn = e.target.closest('.btn-edit-review');
+        if (editBtn) {
+            const id = editBtn.dataset.id;
+            const name = editBtn.dataset.name;
+            const anime = editBtn.dataset.anime || '';
+            editReview(id, name, anime);
+            return;
+        }
+        const sameBtn = e.target.closest('.btn-same-entity');
+        if (sameBtn) {
+            const id = sameBtn.dataset.id;
+            sameEntity(id);
+            return;
+        }
+    });
+
+    async function loadReviews(status) {
+        const container = document.getElementById('reviewsContainer');
+        container.innerHTML = '<div class="text-center py-5 text-muted"><div class="spinner-border"></div><p class="mt-2">載入中...</p></div>';
+
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 15000);
+            const resp = await fetch(`/api/admin/reviews?status=${status}`, { signal: controller.signal });
+            clearTimeout(timer);
+
+            if (!resp.ok) {
+                // session 過期 → 跳轉登入頁
+                if (resp.status === 302 || resp.status === 401 || resp.redirected) {
+                    container.innerHTML = '<div class="empty-state"><i class="bi bi-key"></i><p>登入已過期，正在跳轉...</p></div>';
+                    setTimeout(() => window.location.href = '/admin', 1500);
+                    return;
+                }
+                throw new Error(`HTTP ${resp.status}`);
+            }
+
+            const data = await resp.json();
+            renderReviews(data.reviews || [], status);
+            updateCounts();
+        } catch (e) {
+            if (e.name === 'AbortError') {
+                container.innerHTML = '<div class="empty-state"><i class="bi bi-hourglass-split"></i><p>載入超時，請重新整理頁面</p></div>';
+            } else {
+                console.error('[admin reviews] load error:', e);
+                container.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>載入失敗，請重新整理</p></div>';
+            }
+        }
+    }
+
+    function _renderAdminVerify(status, r) {
+        if (status !== 'approved') return '';
+        if (r.admin_verified === undefined && !r.admin_verify_reason) return '';
+
+        let verifyClass = 'admin-verify-pending';
+        let verifyIcon = '⏳';
+        let verifyLabel = '驗證中';
+        if (r.admin_verified === true) { verifyClass = 'admin-verify-passed'; verifyIcon = '✅'; verifyLabel = '驗證通過'; }
+        else if (r.admin_verified === false) { verifyClass = 'admin-verify-failed'; verifyIcon = '❌'; verifyLabel = '驗證未過'; }
+        else if (r.admin_verified === null && r.admin_verify_reason) { verifyClass = 'admin-verify-skip'; verifyIcon = '⏭️'; verifyLabel = '跳過驗證'; }
+
+        let trainingNote = '';
+        if (r.training_saved) { trainingNote = '<br><small class="text-success fw-bold"><i class="bi bi-database-down"></i> 已保存至訓練集</small>'; }
+        else if (r.admin_verified === false) { trainingNote = '<br><small class="text-muted">未保存至訓練集</small>'; }
+
+        return `
+        <div class="admin-verify ${verifyClass}">
+            <strong>${verifyIcon} 核准後二次驗證：</strong>
+            ${verifyLabel}
+            ${r.admin_verify_confidence != null ? `<span class="ms-2">置信度 ${r.admin_verify_confidence}%</span>` : ''}
+            ${r.admin_verify_reason ? `<br><small>${r.admin_verify_reason}</small>` : ''}
+            ${trainingNote}
+        </div>`;
+    }
+
+    function renderReviews(reviews, status) {
+        const container = document.getElementById('reviewsContainer');
+
+        if (reviews.length === 0) {
+            const icons = { pending: 'bi-inbox', approved: 'bi-check-circle', rejected: 'bi-x-circle' };
+            const msgs = { pending: '暫無待審核項目', approved: '暫無已核准項目', rejected: '暫無已駁回項目' };
+            container.innerHTML = `<div class="empty-state"><i class="bi ${icons[status]}"></i><p>${msgs[status]}</p></div>`;
+            return;
+        }
+
+        let html = '';
+        reviews.forEach(r => {
+            const rec = r.record;
+            const qwenBadge = r.qwen_verified === true
+                ? `<span class="badge bg-success">Qwen 確認</span>`
+                : r.qwen_verified === false
+                    ? `<span class="badge bg-danger">Qwen 不認可</span>`
+                    : `<span class="badge bg-secondary">Qwen 未驗證</span>`;
+
+            const qwenVerdictClass = r.qwen_verified === true ? 'qwen-agree'
+                : r.qwen_verified === false ? 'qwen-disagree' : 'qwen-unknown';
+
+            const sourceBadge = {
+                'qwen-open': 'bg-info',
+                'qwen-verified': 'bg-primary',
+                'qwen-vl': 'bg-success'
+            }[r.original_source] || 'bg-secondary';
+
+            const actionButtons = status === 'pending' || status === 'edited' ? `
+                <button class="btn btn-outline-primary btn-sm rounded-pill btn-edit-review"
+                    data-id="${r.id}" data-name="${r.correct_name.replace(/"/g, '&quot;')}" data-anime="${(r.correct_anime || '').replace(/"/g, '&quot;')}">
+                    <i class="bi bi-pencil me-1"></i>編輯
+                </button>
+                <button class="btn btn-outline-success btn-sm rounded-pill btn-same-entity" data-id="${r.id}"
+                    title="原始識別與糾錯為同一角色（繁簡/譯名差異）">
+                    <i class="bi bi-arrow-left-right me-1"></i>前後一致
+                </button>
+                <button class="btn btn-success btn-sm rounded-pill" onclick="approve(${r.id})">
+                    <i class="bi bi-check-lg me-1"></i>核准
+                </button>
+                <button class="btn btn-outline-danger btn-sm rounded-pill" onclick="reject(${r.id})">
+                    <i class="bi bi-x-lg me-1"></i>駁回
+                </button>
+            ` : '';
+
+            const statusBadge = status === 'approved'
+                ? ('<span class="badge bg-success ms-2">已核准</span>'
+                    + (r.same_entity ? '<span class="badge bg-info ms-1" title="原始與糾錯為同一角色">⇔前後一致</span>' : '')
+                    + (r.admin_verified === true ? '<span class="badge bg-primary ms-1" title="Qwen二次驗證通過"><i class="bi bi-shield-check"></i> 已驗證</span>'
+                        : r.admin_verified === false ? '<span class="badge bg-warning text-dark ms-1" title="Qwen未通過二次驗證"><i class="bi bi-shield-exclamation"></i> 驗證未過</span>'
+                        : r.admin_verified === null && r.admin_verify_reason ? '<span class="badge bg-secondary ms-1" title="Qwen不可用，跳過驗證"><i class="bi bi-dash-circle"></i> 跳過</span>'
+                        : '<span class="badge bg-warning ms-1 animate-pulse" title="正在進行 Qwen 二次驗證"><i class="bi bi-hourglass-split"></i> 驗證中</span>'))
+                    + (r.training_saved ? '<span class="badge bg-success ms-1" style="background:#198754!important" title="已保存至訓練集"><i class="bi bi-database-down"></i> 已入庫</span>' : '')
+                : status === 'rejected'
+                    ? '<span class="badge bg-danger ms-2">已駁回</span>'
+                    : r.status === 'edited'
+                        ? '<span class="badge bg-info ms-2">已編輯</span>'
+                        : '';
+
+            const editedDisplay = r.edited_name ? `
+                <div class="review-correction mt-1" style="border-left-color:#6f42c1;background:#f3f0ff;">
+                    <strong>🔧 管理員編輯：</strong>
+                    <span>${r.edited_name}${r.edited_anime ? ' / ' + r.edited_anime : ''}</span>
+                    ${r.edited_note ? `<br><small class="text-muted">${r.edited_note}</small>` : ''}
+                </div>
+            ` : '';
+
+            html += `
+            <div class="review-card" id="review-${r.id}">
+                <div class="card-body">
+                    <div class="row align-items-start g-3">
+                        <div class="col-auto">
+                            <img src="${rec.image_url}" class="review-img" alt="識別圖片"
+                                 onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%22120%22><rect fill=%22%23eee%22 width=%22120%22 height=%22120%22/><text x=%2260%22 y=%2265%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2212%22>無圖片</text></svg>'">
+                        </div>
+                        <div class="col">
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <span class="badge ${sourceBadge} badge-source">${r.original_source}</span>
+                                ${qwenBadge}
+                                ${statusBadge}
+                                <span class="review-meta ms-auto">${r.created_at ? new Date(r.created_at).toLocaleString('zh-TW') : ''}</span>
+                            </div>
+
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <div class="review-original">
+                                        <strong>🔍 原始識別：</strong>
+                                        <span>${rec.top1_name || '未知'} / ${rec.top1_anime || '未知'}</span>
+                                        ${rec.top1_confidence ? `<small class="text-muted ms-1">(${rec.top1_confidence.toFixed(1)}%)</small>` : ''}
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="review-correction">
+                                        <strong>✏️ 用戶糾錯：</strong>
+                                        <span>${r.correct_name}${r.correct_anime ? ' / ' + r.correct_anime : ''}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            ${editedDisplay}
+
+                            ${r.qwen_name || r.qwen_reason ? `
+                            <div class="qwen-verdict ${qwenVerdictClass} mt-2">
+                                <strong>🤖 Qwen-VL 判定：</strong>
+                                ${r.qwen_name ? `<span>識別為 <em>${r.qwen_name}</em></span>` : ''}
+                                ${r.qwen_confidence != null ? `<span class="ms-2">置信度 ${r.qwen_confidence}%</span>` : ''}
+                                ${r.qwen_reason ? `<br><small class="text-muted">${r.qwen_reason}</small>` : ''}
+                            </div>
+                            ` : ''}
+
+                            <!-- 核准後 Qwen 二次驗證結果（僅已核准項目顯示） -->
+                            ${_renderAdminVerify(status, r)}
+
+                            ${actionButtons ? `<div class="review-actions mt-2">${actionButtons}</div>` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        });
+
+        container.innerHTML = html;
+    }
+
+    async function updateCounts() {
+        for (const status of ['pending', 'approved', 'rejected']) {
+            try {
+                const resp = await fetch(`/api/admin/reviews?status=${status}`);
+                const data = await resp.json();
+                document.getElementById(`${status}TabCount`).textContent = `(${data.total})`;
+                if (status === 'pending') {
+                    document.getElementById('pendingCount').textContent = `待審核: ${data.total}`;
+                }
+            } catch (e) {}
+        }
+    }
+
+    async function approve(id) {
+        if (!confirm('確定核准此糾錯？核准後將立即應用糾錯結果，並在背景執行 Qwen 二次驗證後自動加入訓練數據。')) return;
+        const card = document.getElementById(`review-${id}`);
+        card.style.opacity = '0.5';
+        try {
+            const resp = await fetch(`/api/admin/reviews/${id}/approve`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                loadReviews(currentStatus);
+            } else {
+                alert(data.error || '操作失敗');
+                card.style.opacity = '1';
+            }
+        } catch (e) {
+            alert('請求失敗');
+            card.style.opacity = '1';
+        }
+    }
+
+    async function reject(id) {
+        if (!confirm('確定駁回此糾錯？')) return;
+        const card = document.getElementById(`review-${id}`);
+        card.style.opacity = '0.5';
+        try {
+            const resp = await fetch(`/api/admin/reviews/${id}/reject`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                loadReviews(currentStatus);
+            } else {
+                alert(data.error || '操作失敗');
+                card.style.opacity = '1';
+            }
+        } catch (e) {
+            alert('請求失敗');
+            card.style.opacity = '1';
+        }
+    }
+
+    // ===== 前後一致功能 =====
+    async function sameEntity(id) {
+        const card = document.getElementById(`review-${id}`);
+        const origName = card.querySelector('.review-original span')?.textContent?.trim() || '';
+        const corrName = card.querySelector('.review-correction span')?.textContent?.trim() || '';
+
+        if (!confirm(`確認「${origName}」與「${corrName}」為同一角色？（繁簡/譯名差異）\n\n點擊確認將自動標記並核准。`)) return;
+
+        card.style.opacity = '0.5';
+        try {
+            const resp = await fetch(`/api/admin/reviews/${id}/same-entity`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                loadReviews(currentStatus);
+            } else {
+                alert(data.error || '操作失敗');
+                card.style.opacity = '1';
+            }
+        } catch (e) {
+            alert('請求失敗');
+            card.style.opacity = '1';
+        }
+    }
+
+    // ===== 編輯功能 =====
+    let currentEditReview = null;
+
+    function editReview(id, correctName, correctAnime) {
+        currentEditReview = id;
+        document.getElementById('editReviewId').value = id;
+        document.getElementById('editCorrectOriginal').value = correctName + (correctAnime ? ' / ' + correctAnime : '');
+        document.getElementById('editCorrectName').value = correctName;
+        document.getElementById('editCorrectAnime').value = correctAnime || '';
+        document.getElementById('editNote').value = '';
+
+        // 獲取原始識別資訊
+        const card = document.getElementById(`review-${id}`);
+        if (card) {
+            const origEl = card.querySelector('.review-original span');
+            document.getElementById('editOriginalInfo').value = origEl ? origEl.textContent.trim() : '';
+        }
+
+        const modal = new bootstrap.Modal(document.getElementById('editModal'));
+        modal.show();
+    }
+
+    async function saveEdit(btnEl) {
+        const id = document.getElementById('editReviewId').value;
+        const editedName = document.getElementById('editCorrectName').value.trim();
+        const editedAnime = document.getElementById('editCorrectAnime').value.trim();
+        const editedNote = document.getElementById('editNote').value.trim();
+
+        if (!editedName) {
+            alert('角色名不能為空');
+            return;
+        }
+
+        const btn = btnEl;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>儲存中...';
+
+        try {
+            const resp = await fetch(`/api/admin/reviews/${id}/edit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ edited_name: editedName, edited_anime: editedAnime, edited_note: editedNote }),
+            });
+            const data = await resp.json();
+            if (data.success) {
+                bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+                loadReviews(currentStatus);
+            } else {
+                alert(data.error || '編輯失敗');
+            }
+        } catch (e) {
+            alert('請求失敗');
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>儲存編輯';
+    }
+    </script>
+
+    <!-- i18n 補全狀態管理 -->
+    <script>
+    // 載入 i18n 補全狀態
+    async function loadI18nStatus() {
+        try {
+            const resp = await fetch('/api/admin/enrich-i18n/status');
+            const data = await resp.json();
+            
+            if (data.success) {
+                const status = data.status;
+                
+                // 更新調度器狀態
+                const statusBadge = document.getElementById('i18nSchedulerStatus');
+                if (status.running) {
+                    statusBadge.className = 'badge bg-success';
+                    statusBadge.textContent = '運行中';
+                } else {
+                    statusBadge.className = 'badge bg-secondary';
+                    statusBadge.textContent = '已停止';
+                }
+                
+                // 更新上次運行時間
+                const lastRunEl = document.getElementById('i18nLastRun');
+                if (status.last_run) {
+                    const dt = new Date(status.last_run);
+                    lastRunEl.textContent = dt.toLocaleString('zh-TW');
+                } else {
+                    lastRunEl.textContent = '從未';
+                }
+                
+                // 更新掃描/補全計數
+                if (status.last_scan_summary) {
+                    document.getElementById('i18nScanned').textContent = status.last_scan_summary.scanned;
+                    document.getElementById('i18nEnriched').textContent = status.last_scan_summary.enriched;
+                }
+            }
+        } catch (e) {
+            console.error('載入 i18n 狀態失敗:', e);
+            document.getElementById('i18nMessage').innerHTML = 
+                '<span class="text-danger">❌ 載入狀態失敗</span>';
+        }
+    }
+
+    // 手動觸發補全
+    document.getElementById('btnManualEnrich').addEventListener('click', async function() {
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>補全中...';
+        document.getElementById('i18nMessage').innerHTML =
+            '<span class="text-info">⏳ 正在補全，請稍候...</span>';
+
+        // 讀取數據源選項
+        const useBangumi = document.getElementById('chkUseBangumi').checked;
+        const useAnilist = document.getElementById('chkUseAnilist').checked;
+        const useLLM = document.getElementById('chkUseLLM').checked;
+
+        try {
+            const resp = await fetch('/api/admin/enrich-i18n', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    use_bangumi: useBangumi,
+                    use_anilist: useAnilist,
+                    use_llm: useLLM
+                })
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                document.getElementById('i18nMessage').innerHTML =
+                    `<span class="text-success">✅ 補全完成！掃描 ${data.result.scanned} 條，補全 ${data.result.enriched} 條</span>`;
+                // 重新載入狀態
+                setTimeout(() => loadI18nStatus(), 1000);
+            } else {
+                document.getElementById('i18nMessage').innerHTML =
+                    `<span class="text-danger">❌ 補全失敗: ${data.error || '未知錯誤'}</span>`;
+            }
+        } catch (e) {
+            document.getElementById('i18nMessage').innerHTML =
+                '<span class="text-danger">❌ 請求失敗</span>';
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-circle me-1"></i>手動補全';
+    });
+
+    // 頁面載入時執行
+    loadI18nStatus();
+    </script>
+
+    <!-- i18n script + auto-apply -->
+    <script src="{{ url_for('static', filename='js/i18n.js') }}?v=20260619"></script>
+    <script>
+    // 初始載入
+    loadReviews('pending');
+    updateCounts();
+    </script>
+</body>
+</html>

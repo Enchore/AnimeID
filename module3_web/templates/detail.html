@@ -1,0 +1,576 @@
+{% extends "base.html" %}
+{% block title %}{{ record.user_corrected_name or (top5[0].name_i18n[current_locale] if top5 and top5[0].get('name_i18n') and current_locale in top5[0].name_i18n else None) or (top5[0].name if top5 else record.top1_character_name) or '識別結果' }} - AnimeID{% endblock %}
+
+{% block content %}
+<!-- 顶部导航栏 -->
+<nav class="detail-navbar">
+    <div class="container d-flex justify-content-between align-items-center">
+        <a href="javascript:history.back()" class="nav-back-link">
+            <i class="bi bi-arrow-left me-1"></i><span data-i18n="detail.back">返回</span>
+        </a>
+    </div>
+</nav>
+{% set all_chars = all_chars if all_chars is defined else (record.all_characters | from_json_or_none) %}
+{% set is_multi = all_chars and (all_chars | length >= 2) %}
+
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <!-- 图像展示 -->
+        <div class="col-lg-5 mb-4 mb-lg-0">
+            <div class="detail-card h-100">
+                <div class="result-img-wrapper">
+                    <img 
+                        src="{{ record.image_url or url_for('uploaded_file', filename=record.image_filename) }}"
+                        alt="{{ record.user_corrected_name or record.top1_character_name }}"
+                        class="result-img"
+                        onerror="this.src='/static/img/placeholder.svg'"
+                    >
+                </div>
+                <!-- 互動按鈕 -->
+                <div class="action-bar mt-3">
+                    {% if is_multi %}
+                    <!-- 多人識別模式：提示用戶在右側為每個角色分別操作 -->
+                    <div class="text-center text-muted py-2" style="font-size:0.82rem;">
+                        <i class="bi bi-info-circle me-1"></i>
+                        <span>多人識別結果，請在右側為每個角色分別點讚或糾錯</span>
+                    </div>
+                    {% else %}
+                    <div class="action-row">
+                        {% if record.correction_approved or record.user_corrected_name %}
+                        <button
+                            class="action-chip disabled"
+                            id="likeAccuracyBtn"
+                            disabled
+                            title="此識別結果已被糾錯，無法點讚「識別正確」"
+                        >
+                            <i class="bi bi-check-circle"></i>
+                            <span data-i18n="detail.like_accuracy">識別正確</span>
+                            <small class="action-count" id="likeAccuracyBadge">{{ record.like_accuracy or 0 }}</small>
+                        </button>
+                        {% else %}
+                        <button
+                            class="action-chip {% if record.like_accuracy > 0 %}active-green{% endif %}"
+                            id="likeAccuracyBtn"
+                            onclick="likeRecord({{ record.id }}, 'accuracy', this)"
+                        >
+                            <i class="bi bi-check-circle{% if record.like_accuracy > 0 %}-fill{% endif %}"></i>
+                            <span data-i18n="detail.like_accuracy">識別正確</span>
+                            <small class="action-count" id="likeAccuracyBadge">{{ record.like_accuracy or 0 }}</small>
+                        </button>
+                        {% endif %}
+                        <button
+                            class="action-chip {% if record.like_character > 0 %}active-red{% endif %}"
+                            id="likeCharBtn"
+                            onclick="likeRecord({{ record.id }}, 'character', this)"
+                        >
+                            <i class="bi bi-heart{% if record.like_character > 0 %}-fill{% endif %}"></i>
+                            <span data-i18n="detail.like_character">喜歡角色</span>
+                            <small class="action-count" id="likeCharBadge">{{ record.like_character or 0 }}</small>
+                        </button>
+                    </div>
+                    <div class="action-row">
+                        <button
+                            class="action-chip action-secondary"
+                            onclick="showCorrectModal({{ record.id }}, '{{ record.user_corrected_name or record.top1_character_name or '' }}')"
+                        >
+                            <i class="bi bi-pencil-square"></i>
+                            <span data-i18n="detail.correct_btn">糾錯</span>
+                        </button>
+                        <button class="action-chip action-secondary" onclick="shareResult()">
+                            <i class="bi bi-share"></i>
+                            <span data-i18n="detail.share_btn">分享</span>
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 識別結果 -->
+        <div class="col-lg-7">
+            <div class="detail-card h-100">
+                {% if record.is_anime == False %}
+                <!-- 非動漫圖片 -->
+                <div class="result-header mb-4">
+                    <div class="result-badge-wrap">
+                        <span class="badge bg-secondary fs-6 px-3 py-2">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i><span data-i18n="detail.not_anime_title">非動漫圖片</span>
+                        </span>
+                    </div>
+                    <div class="not-anime-alert mt-4">
+                        <div class="not-anime-icon mb-3">🖼️</div>
+                        <h3 class="mb-2" data-i18n="detail.not_anime_body">這不是一張動漫圖片</h3>
+                        <p class="text-muted">
+                            AI 判定此图为非動漫內容：{{ record.top1_anime or '無法識別为二次元風格' }}
+                        </p>
+                        <div class="mt-3">
+                            <a href="{{ url_for('upload_page') }}" class="btn btn-primary rounded-pill">
+                                <i class="bi bi-cloud-upload me-1"></i><span data-i18n="detail.upload_real">上傳真正的動漫角色</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="result-header mb-4">
+                    <div class="result-badge-wrap">
+                        <span class="confidence-pill">
+                            置信度 {{ "%.1f"|format(record.top1_confidence or 0) }}%
+                        </span>
+                        {% if top5 and top5[0].get('source') == 'qwen-vl' %}
+                            {% if top5[0].get('known_to_db') %}
+                            <span class="badge bg-primary-subtle text-primary ms-2">
+                                <i class="bi bi-cpu-fill me-1"></i>Qwen-VL 識別 · 已入庫
+                            </span>
+                            {% else %}
+                            <span class="badge bg-info-subtle text-info ms-2">
+                                <i class="bi bi-stars me-1"></i>Qwen-VL 發現新角色
+                            </span>
+                            {% endif %}
+                        {% elif top5 and top5[0].get('source') == 'local' %}
+                        <span class="badge bg-secondary-subtle text-secondary ms-2">
+                            <i class="bi bi-box me-1"></i>本地模型識別
+                        </span>
+                        {% endif %}
+                        {% if record.user_corrected_name %}
+                        <span class="badge bg-warning text-dark ms-2">
+                            <i class="bi bi-pencil-fill me-1"></i>已被糾錯
+                        </span>
+                        {% endif %}
+                    </div>
+                    {# 角色名：優先使用當前語言的 i18n 譯名，fallback 到原始 name #}
+                    {% set _i18n_char_name = (top5[0].name_i18n[current_locale] if top5 and top5[0].get('name_i18n') and current_locale in top5[0].name_i18n else None) %}
+                    <h2 class="result-char-name mt-2">{{ record.user_corrected_name or _i18n_char_name or (top5[0].name if top5 else record.top1_character_name) or '未能識別' }}</h2>
+                    {# 其他語言譯名（已知角色 + Qwen 開放識別新角色） #}
+                    {# 單人：檢查 top5[0] 是否有 i18n；多人：檢查是否有任一角色有 i18n #}
+                    {% set _has_trans = (top5 and top5[0].get('name_i18n')) %}
+                    {# 記錄已渲染的角色名，用於多人模式下跳過重複顯示 #}
+                    {% set _ns_done = namespace(rendered=[]) %}
+                    {% if all_chars and not _has_trans %}
+                    {% set _ns = namespace(c=0) %}
+                    {% for _hci in all_chars %}
+                        {% if _hci.get('name_i18n') or _hci.get('anime_i18n') %}
+                            {% set _ns.c = _ns.c + 1 %}
+                        {% endif %}
+                    {% endfor %}
+                    {% if _ns.c > 0 %}{% set _has_trans = true %}{% endif %}
+                    {% endif %}
+                    {% if _has_trans %}
+                    <div class="mt-1 mb-2">
+                        <button class="btn btn-link btn-sm p-0 text-muted" type="button"
+                                data-bs-toggle="collapse" data-bs-target="#nameTranslations"
+                                aria-expanded="false" style="font-size:0.82rem;">
+                            <i class="bi bi-translate me-1"></i><span data-i18n="detail.other_langs">其他語言譯名</span>
+                        </button>
+                        <div class="collapse mt-1" id="nameTranslations">
+                            <div class="card card-body p-2" style="font-size:0.82rem;background:rgba(102,107,206,0.06);border:1px solid rgba(102,107,206,0.15);">
+                                {# 單角色：顯示 top5[0] 譯名 #}
+                                {% if not all_chars %}
+                                <div class="fw-semibold text-muted mb-1" style="font-size:0.75rem;">角色名</div>
+                                {% for lang in SUPPORTED_LOCALES %}
+                                {% if lang != current_locale and top5[0].name_i18n.get(lang) %}
+                                <div class="d-flex justify-content-between py-1" style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                                    <span class="text-muted" style="min-width:60px;">{{ lang }}</span>
+                                    <span>{{ top5[0].name_i18n[lang] }}</span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% if top5[0].get('anime_i18n') %}
+                                <div class="fw-semibold text-muted mb-1 mt-2" style="font-size:0.75rem;">作品名</div>
+                                {% for lang in SUPPORTED_LOCALES %}
+                                {% if lang != current_locale and top5[0].anime_i18n.get(lang) %}
+                                <div class="d-flex justify-content-between py-1" style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                                    <span class="text-muted" style="min-width:60px;">{{ lang }}</span>
+                                    <span>{{ top5[0].anime_i18n[lang] }}</span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% endif %}
+                                {# 多人角色：top5[0] 的 i18n + 有 i18n 數據的 all_chars 角色 #}
+                                {% else %}
+                                {# 1) top5[0] 的譯名（top1 角色的 i18n 存在這裡，不在 all_chars 中） #}
+                                {% if top5 and top5[0].get('name_i18n') %}
+                                {% set _t5name = top5[0].name or '未知' %}
+                                <div class="fw-semibold text-secondary mb-1" style="font-size:0.8rem;border-bottom:1px dashed rgba(102,107,206,0.2);padding-bottom:2px;">
+                                    {{ _t5name }}
+                                </div>
+                                <div class="fw-semibold text-muted mb-1" style="font-size:0.7rem;">{{ _t5name }} · 角色名</div>
+                                {% for lang in SUPPORTED_LOCALES %}
+                                {% if lang != current_locale and top5[0].name_i18n.get(lang) %}
+                                <div class="d-flex justify-content-between py-1" style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                                    <span class="text-muted" style="min-width:60px;">{{ lang }}</span>
+                                    <span>{{ top5[0].name_i18n[lang] }}</span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% if top5[0].get('anime_i18n') %}
+                                <div class="fw-semibold text-muted mb-1 mt-1" style="font-size:0.7rem;">{{ _t5name }} · 作品名</div>
+                                {% for lang in SUPPORTED_LOCALES %}
+                                {% if lang != current_locale and top5[0].anime_i18n.get(lang) %}
+                                <div class="d-flex justify-content-between py-1" style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                                    <span class="text-muted" style="min-width:60px;">{{ lang }}</span>
+                                    <span>{{ top5[0].anime_i18n[lang] }}</span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% endif %}
+                                {% endif %}
+                                {# 標記 top5[0] 已渲染，避免 all_chars 中重複 #}
+                                {% if top5 and top5[0].get('name') %}
+                                    {% if _ns_done.rendered.append(top5[0].name) %}{% endif %}
+                                {% endif %}
+                                {# 2) all_chars 中自身帶有 i18n 的角色（跳過已渲染的） #}
+                                {% for char in all_chars %}
+                                {% set _cname_raw = (char.name | string if char.get('name') else '') %}
+                                {% if (char.get('name_i18n') or char.get('anime_i18n')) and _cname_raw not in _ns_done.rendered %}
+                                {% set _cname = char.name or '未知' %}
+                                <div class="fw-semibold text-secondary mb-1 mt-2" style="font-size:0.8rem;border-bottom:1px dashed rgba(102,107,206,0.2);padding-bottom:2px;">
+                                    {{ _cname }}
+                                </div>
+                                {% if char.get('name_i18n') %}
+                                <div class="fw-semibold text-muted mb-1" style="font-size:0.7rem;">{{ _cname }} · 角色名</div>
+                                {% for lang in SUPPORTED_LOCALES %}
+                                {% if lang != current_locale and char.name_i18n.get(lang) %}
+                                <div class="d-flex justify-content-between py-1" style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                                    <span class="text-muted" style="min-width:60px;">{{ lang }}</span>
+                                    <span>{{ char.name_i18n[lang] }}</span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% endif %}
+                                {% if char.get('anime_i18n') %}
+                                <div class="fw-semibold text-muted mb-1 mt-1" style="font-size:0.7rem;">{{ _cname }} · 作品名</div>
+                                {% for lang in SUPPORTED_LOCALES %}
+                                {% if lang != current_locale and char.anime_i18n.get(lang) %}
+                                <div class="d-flex justify-content-between py-1" style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                                    <span class="text-muted" style="min-width:60px;">{{ lang }}</span>
+                                    <span>{{ char.anime_i18n[lang] }}</span>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% endif %}
+                                {% endif %}
+                                {# 標記此角色已渲染 #}
+                                {% if _ns_done.rendered.append(_cname_raw) %}{% endif %}
+                                {% endfor %}
+                                {% endif %}
+                                </div>
+                    </div>
+                    {% endif %}
+                    {# 作品名：優先使用當前語言的 i18n 譯名，fallback 到原始 anime #}
+                    {% set _i18n_anime_name = (top5[0].anime_i18n[current_locale] if top5 and top5[0].get('anime_i18n') and current_locale in top5[0].anime_i18n else None) %}
+                    <p class="result-anime-name">
+                        <i class="bi bi-film me-1 text-primary"></i>
+                        {{ record.user_corrected_anime or _i18n_anime_name or (top5[0].anime if top5 else record.top1_anime) or '未知作品' }}
+                    </p>
+                    {% if is_multi %}
+                    <!-- 多人角色卡片（每個角色獨立的喜歡+正確按鈕） -->
+                    <div class="multi-char-section mt-3 p-3 rounded" style="background:rgba(102,107,206,0.04);border-left:3px solid var(--primary);">
+                        <div class="d-flex align-items-center mb-3">
+                            <i class="bi bi-people-fill text-primary me-2"></i>
+                            <span class="fw-semibold" data-i18n="detail.multi_chars" data-i18n-params='{"n": {{ all_chars | length }}}'>多人識別 · 共 {{ all_chars | length }} 個角色</span>
+                        </div>
+                        <div class="row g-3">
+                            {% for char in all_chars %}
+                            {% set ck = char.character_key or char.name %}
+                            <div class="col-md-6">
+                                <div class="multi-char-card p-3 rounded-3 h-100" style="background:white;border:1px solid rgba(102,107,206,0.15);box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+                                    <!-- 角色信息 -->
+                                    <div class="d-flex align-items-start justify-content-between mb-2">
+                                        <div>
+                                            {% set _mc_i18n_name = (char.name_i18n[current_locale] if char.get('name_i18n') and current_locale in char.name_i18n else None) %}
+                                            {% set _mc_i18n_anime = (char.anime_i18n[current_locale] if char.get('anime_i18n') and current_locale in char.anime_i18n else None) %}
+                                            <span class="fw-semibold fs-6">{{ _mc_i18n_name or char.name }}</span>
+                                            {% if char.get('name_i18n') %}
+                                            <button class="btn btn-link btn-xs p-0 ms-1 text-muted" type="button"
+                                                    data-bs-toggle="collapse" data-bs-target="#charLang{{ loop.index }}"
+                                                    aria-expanded="false" style="font-size:0.75rem;">
+                                                <i class="bi bi-translate"></i>
+                                            </button>
+                                            {% endif %}
+                                            <span class="text-muted ms-1" style="font-size:0.8rem;">{{ _mc_i18n_anime or char.anime }}</span>
+                                        </div>
+                                        <span class="badge bg-primary-subtle text-primary" style="font-size:0.7rem;">{{ "%.0f"|format(char.confidence) }}%</span>
+                                    </div>
+                                    {% if char.get('name_i18n') %}
+                                    <div class="collapse" id="charLang{{ loop.index }}">
+                                        <div class="card card-body p-2 mb-2" style="font-size:0.8rem;background:rgba(102,107,206,0.04);">
+                                            <div class="fw-semibold text-muted mb-1" style="font-size:0.75rem;">角色名</div>
+                                            {% for lang in SUPPORTED_LOCALES %}
+                                            {% if lang != current_locale and char.name_i18n.get(lang) %}
+                                            <div class="d-flex justify-content-between py-1" style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                                                <span class="text-muted" style="min-width:60px;">{{ lang }}</span>
+                                                <span>{{ char.name_i18n[lang] }}</span>
+                                            </div>
+                                            {% endif %}
+                                            {% endfor %}
+                                            {% if char.get('anime_i18n') %}
+                                            <div class="fw-semibold text-muted mb-1 mt-2" style="font-size:0.75rem;">作品名</div>
+                                            {% for lang in SUPPORTED_LOCALES %}
+                                            {% if lang != current_locale and char.anime_i18n.get(lang) %}
+                                            <div class="d-flex justify-content-between py-1" style="border-bottom:1px solid rgba(0,0,0,0.04);">
+                                                <span class="text-muted" style="min-width:60px;">{{ lang }}</span>
+                                                <span>{{ char.anime_i18n[lang] }}</span>
+                                            </div>
+                                            {% endif %}
+                                            {% endfor %}
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                    {% if char.get('source') == 'qwen-vl' %}
+                                        {% if char.get('known_to_db') %}
+                                        <span class="badge bg-primary-subtle text-primary me-1" style="font-size:0.65rem;"><i class="bi bi-cpu-fill me-1"></i>Qwen · 已入庫</span>
+                                        {% else %}
+                                        <span class="badge bg-info-subtle text-info me-1" style="font-size:0.65rem;"><i class="bi bi-stars me-1"></i>Qwen 新角色</span>
+                                        {% endif %}
+                                    {% endif %}
+                                    {% if char.get('corrected') %}
+                                    <span class="badge bg-warning-subtle text-warning me-1" style="font-size:0.65rem;" title="原始識別：{{ char.original_name }}">
+                                        <i class="bi bi-exclamation-circle me-1"></i>已糾錯（原：{{ char.original_name }}）
+                                    </span>
+                                    {% endif %}
+                                    <!-- 按鈕組 -->
+                                    <div class="d-flex gap-2 mt-2 flex-wrap">
+                                        <!-- 識別正確 -->
+                                        {% if char.get('corrected') %}
+                                        <button class="action-chip action-sm disabled" disabled
+                                                id="charAcc_{{ loop.index }}"
+                                                data-char-key="{{ ck | e }}"
+                                                title="此角色已被糾錯，無法點讚「識別正確」">
+                                            <i class="bi bi-check-circle"></i>
+                                            <span>識別正確</span>
+                                            <small class="action-count">{{ char.like_accuracy_count | default(0) }}</small>
+                                        </button>
+                                        {% else %}
+                                        <button class="action-chip action-sm {% if (char.like_accuracy_count | default(0)) > 0 %}active-green{% endif %}"
+                                                id="charAcc_{{ loop.index }}"
+                                                data-char-key="{{ ck | e }}"
+                                                onclick="likeRecord({{ record.id }}, 'accuracy', this, '{{ ck | e }}')">
+                                            <i class="bi bi-check-circle{% if (char.like_accuracy_count | default(0)) > 0 %}-fill{% endif %}"></i>
+                                            <span>識別正確</span>
+                                            <small class="action-count">{{ char.like_accuracy_count | default(0) }}</small>
+                                        </button>
+                                        {% endif %}
+                                        <!-- 喜歡角色 -->
+                                        <button class="action-chip action-sm {% if (char.like_character_count | default(0)) > 0 %}active-red{% endif %}"
+                                                id="charLike_{{ loop.index }}"
+                                                data-char-key="{{ ck | e }}"
+                                                onclick="likeRecord({{ record.id }}, 'character', this, '{{ ck | e }}')">
+                                            <i class="bi bi-heart{% if (char.like_character_count | default(0)) > 0 %}-fill{% endif %}"></i>
+                                            <span>喜歡角色</span>
+                                            <small class="action-count">{{ char.like_character_count | default(0) }}</small>
+                                        </button>
+                                        <!-- 糾錯此角色 -->
+                                        <button class="action-chip action-secondary action-sm"
+                                                onclick="showCorrectModalForChar({{ record.id }}, '{{ char.name | e }}', '{{ char.anime | e }}', '{{ char.get('_display_name', char.name) | e }}')">
+                                            <i class="bi bi-pencil-square"></i>
+                                            <span>糾錯</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <!-- 多人識別全局操作 -->
+                        <div class="d-flex justify-content-center mt-3 pt-2" style="border-top:1px solid rgba(102,107,206,0.1);">
+                            <button class="action-chip action-secondary action-sm" onclick="shareResult()">
+                                <i class="bi bi-share"></i><span data-i18n="detail.share_btn">分享</span>
+                            </button>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if top5 and top5[0].get('reason') %}
+                    <div class="qwen-reason mt-2 p-2 rounded" style="background:rgba(102,107,206,0.05);font-size:0.85rem;">
+                        <i class="bi bi-lightbulb-fill text-primary me-1"></i>
+                        <span class="text-muted">{{ top5[0].reason }}</span>
+                    </div>
+                    {% endif %}
+                    {% if top5 and top5[0].get('features') and top5[0].features is mapping %}
+                    <div class="qwen-features mt-2 d-flex flex-wrap gap-1">
+                        {% for k, v in top5[0].features.items() %}
+                        {% if v %}
+                        <span class="badge bg-light text-dark border">{{ k }}: {{ v }}</span>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+
+                {% if record.user_corrected_name %}
+                <div class="alert alert-warning d-flex align-items-center" role="alert">
+                    <i class="bi bi-info-circle-fill me-2"></i>
+                    <span data-i18n="detail.correction_alert">用戶糾錯：正確名稱可能是</span> <strong class="ms-1">{{ record.user_corrected_name }}</strong>
+                </div>
+                {% endif %}
+
+                <!-- Top-5 候選結果 -->
+                {% if top5 %}
+                <div class="top5-section">
+                    <h6 class="section-subtitle mb-3">
+                        <i class="bi bi-bar-chart-fill me-2 text-primary"></i><span data-i18n="detail.candidates">候選結果 Top-5</span>
+                        {% if record.user_corrected_name %}
+                        <span class="badge bg-success ms-2" data-i18n="detail.corrected_badge">已糾錯</span>
+                        {% endif %}
+                    </h6>
+                    <div class="top5-list">
+                        {% for item in top5 %}
+                        <div class="top5-item {% if loop.first and item.get('source') != 'user-corrected' %}top5-first{% endif %} 
+                                    {% if item.get('source') == 'user-corrected' %}border border-success bg-success-subtle{% endif %}">
+                            <div class="top5-rank">
+                                {% if item.get('source') == 'user-corrected' %}✅
+                                {% elif loop.first %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉
+                                {% else %}{{ loop.index }}{% endif %}
+                            </div>
+                            <div class="top5-info flex-grow-1">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    {% set _t5_i18n_name = (item.name_i18n[current_locale] if item.get('name_i18n') and current_locale in item.name_i18n else None) %}
+                                    {% set _t5_i18n_anime = (item.anime_i18n[current_locale] if item.get('anime_i18n') and current_locale in item.anime_i18n else None) %}
+                                    <span class="top5-name">
+                                        {{ _t5_i18n_name or item.name }}
+                                        {% if item.get('source') == 'user-corrected' %}
+                                        <span class="badge bg-success ms-1" style="font-size:0.65rem;">用戶糾錯</span>
+                                        {% elif item.get('source') == 'qwen-vl' %}
+                                        <span class="badge bg-primary-subtle text-primary ms-1" style="font-size:0.65rem;">Qwen</span>
+                                        {% elif item.get('source') == 'local' %}
+                                        <span class="badge bg-secondary-subtle text-secondary ms-1" style="font-size:0.65rem;">本地</span>
+                                        {% endif %}
+                                        {% if item.get('known_to_db') == false %}
+                                        <span class="badge bg-info-subtle text-info ms-1" style="font-size:0.65rem;" title="未在本地模型训练库中">新</span>
+                                        {% endif %}
+                                    </span>
+                                    <span class="top5-conf">{{ item.confidence }}%</span>
+                                </div>
+                                <div class="top5-anime text-muted small">{{ _t5_i18n_anime or item.anime }}</div>
+                                {% if item.get('reason') %}
+                                <div class="text-muted mt-1" style="font-size:0.75rem;">
+                                    <i class="bi bi-lightbulb"></i> {{ item.reason }}
+                                </div>
+                                {% endif %}
+                                <div class="progress mt-1" style="height: 4px;">
+                                    <div class="progress-bar {% if loop.first %}bg-primary{% else %}bg-secondary{% endif %}" 
+                                         style="width: {{ item.confidence }}%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- 記錄信息 -->
+                <div class="record-meta mt-4 pt-4 border-top">
+                    <div class="meta-item">
+                        <i class="bi bi-clock me-1 text-muted"></i>
+                        <span class="text-muted small"><span data-i18n="detail.rec_time">識別時間</span>：{{ record.created_at.strftime('%Y年%m月%d日 %H:%M') if record.created_at else '未知' }}</span>
+                    </div>
+                    <div class="meta-item mt-1">
+                        <i class="bi bi-hash me-1 text-muted"></i>
+                        <span class="text-muted small"><span data-i18n="detail.rec_id">記錄編號</span>：#{{ record.id }}</span>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 評論区域 -->
+<div class="container py-2" id="commentSectionContainer">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="comment-section" id="commentSection">
+                <div class="comment-section-title">
+                    <i class="bi bi-chat-dots-fill" style="color:var(--primary)"></i>
+                    <span data-i18n="detail.comments">評論</span>
+                    <span class="badge bg-secondary rounded-pill ms-2" id="commentCount">0</span>
+                </div>
+
+                <!-- 評論表单 -->
+                <div class="comment-form">
+                    <div class="comment-avatar">匿</div>
+                    <div style="flex:1">
+                        <textarea class="comment-input" id="commentInput" 
+                                  rows="2" data-i18n-placeholder="detail.comment_placeholder"></textarea>
+                        <div class="d-flex justify-content-between align-items-center mt-2">
+                            <input type="text" class="form-control form-control-sm" 
+                                   id="commentUsername" data-i18n-placeholder="detail.nickname_placeholder"
+                                   style="max-width:160px;font-size:0.8rem;">
+                            <button class="btn btn-primary btn-sm rounded-pill px-4" onclick="submitComment()">
+                                <i class="bi bi-send me-1"></i><span data-i18n="detail.send_comment">發送</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 評論列表 -->
+                <div id="commentList"></div>
+
+                <!-- 空状态 -->
+                <div id="commentEmpty" class="text-center py-4 d-none">
+                    <div class="text-muted small">
+                        <i class="bi bi-chat-square-text" style="font-size:2rem;"></i>
+                        <p class="mt-2" data-i18n="detail.no_comment">還沒有評論，來說點什麼吧</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 糾錯 Modal -->
+<div class="modal fade" id="correctModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content modal-custom">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title">
+                    <i class="bi bi-pencil-square me-2 text-warning"></i><span data-i18n="detail.correct_title">識別糾錯</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">
+                    当前識別：<strong id="currentCharName" class="text-primary">{{ record.user_corrected_name or record.top1_character_name }}</strong>
+                </p>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold" data-i18n="detail.correct_name_label">正確的角色名稱</label>
+                    <input type="text" class="form-control form-control-custom" 
+                           id="correctNameInput" placeholder="請輸入正確的角色名">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold" data-i18n="detail.correct_anime_label">所屬作品（可選）</label>
+                    <input type="text" class="form-control form-control-custom" 
+                           id="correctAnimeInput" placeholder="請輸入作品名稱">
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-secondary rounded-pill" data-bs-dismiss="modal" data-i18n="detail.cancel">取消</button>
+                <button type="button" class="btn btn-warning rounded-pill" onclick="submitCorrection()">
+                    <i class="bi bi-check-lg me-1"></i><span data-i18n="detail.submit_correction">提交糾錯</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/wall.js') }}?v=20260620l"></script>
+<script src="{{ url_for('static', filename='js/comments.js') }}?v=20260618a"></script>
+<script>
+const RECORD_ID = {{ record.id }};
+loadComments(RECORD_ID);
+
+function shareResult() {
+    if (navigator.share) {
+        navigator.share({
+            title: 'AnimeID 識別結果',
+            text: `識別到動漫角色：${document.querySelector('.result-char-name').textContent}`,
+            url: window.location.href,
+        });
+    } else {
+        navigator.clipboard.writeText(window.location.href)
+            .then(() => alert('連結已複製到剪貼簿！'));
+    }
+}
+</script>
+{% endblock %}

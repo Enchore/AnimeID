@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}識別角色 - AnimeID{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="upload-card">
+                <!-- 标题区 -->
+                <div class="upload-header text-center mb-4">
+                    <h2 class="page-title">
+                        <i class="bi bi-camera-fill me-2 text-primary"></i><span data-i18n="upload.title">識別動漫角色</span>
+                    </h2>
+                    <p class="text-muted mb-0" data-i18n="upload.drag_hint">上傳截圖，AI 秒速識別角色名稱與出處作品</p>
+                </div>
+
+                <!-- 步骤指示器 -->
+                <div class="steps-indicator mb-4">
+                    <div class="step active" id="step1">
+                        <div class="step-circle">1</div>
+                        <span data-i18n="upload.step1">上傳圖片</span>
+                    </div>
+                    <div class="step-line"></div>
+                    <div class="step" id="step2">
+                        <div class="step-circle">2</div>
+                        <span data-i18n="upload.step2">預覽確認</span>
+                    </div>
+                    <div class="step-line"></div>
+                    <div class="step" id="step3">
+                        <div class="step-circle">3</div>
+                        <span data-i18n="upload.step3">開始識別</span>
+                    </div>
+                </div>
+
+                <!-- 上傳区域 -->
+                <div class="upload-zone" id="uploadZone">
+                    <div class="upload-zone-inner">
+                        <div class="upload-icon-wrapper">
+                            <i class="bi bi-cloud-arrow-up-fill upload-icon"></i>
+                        </div>
+                        <h4 class="upload-title" data-i18n="upload.drag_hint">拖曳圖片到此處</h4>
+                        <p class="upload-hint" data-i18n="upload.drag_hint_sub">或點擊選擇圖片檔案</p>
+                        <p class="upload-formats" data-i18n="upload.formats">支援 JPG / PNG / WebP / GIF，最大 16MB</p>
+                        <input type="file" id="imageInput" accept="image/*" class="d-none">
+                        <button class="btn btn-outline-primary rounded-pill mt-3 px-4" 
+                                onclick="document.getElementById('imageInput').click()">
+                            <i class="bi bi-folder-open me-2"></i><span data-i18n="upload.select_file">選擇檔案</span>
+                        </button>
+                        <p class="upload-paste-hint mt-3 mb-0">
+                            <i class="bi bi-clipboard2-heart me-1"></i>
+                            <span data-i18n="upload.paste_hint">或按 Ctrl+V 貼上剪貼簿截圖</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 分割线 -->
+                <div class="divider-with-text my-4">
+                    <span data-i18n="upload.or">或者</span>
+                </div>
+
+                <!-- URL输入 -->
+                <div class="mb-4">
+                    <label class="form-label">
+                        <i class="bi bi-link-45deg me-1"></i><span data-i18n="upload.url_label">圖片連結（URL）</span>
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light border">
+                            <i class="bi bi-globe2"></i>
+                        </span>
+                        <input type="url" class="form-control form-control-custom" 
+                               id="imageUrlInput" 
+                               placeholder="https://example.com/anime.jpg">
+                        <button class="btn btn-primary" id="urlRecognizeBtn" onclick="recognizeFromUrl()">
+                            <i class="bi bi-search"></i> <span data-i18n="upload.recognize_btn">識別</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 预览区域 -->
+                <div id="previewSection" class="d-none">
+                    <div class="preview-card">
+                        <div class="preview-header d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="mb-0 text-muted">
+                                <i class="bi bi-image me-1"></i><span data-i18n="upload.preview_label">圖片預覽</span>
+                            </h6>
+                            <button class="btn-action" onclick="clearPreview()" title="移除">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                        <div class="preview-img-wrapper text-center">
+                            <img id="previewImage" src="" alt="預覽" class="preview-img">
+                        </div>
+                        <div class="text-center mt-4">
+                            <button class="btn btn-primary btn-lg rounded-pill px-5" 
+                                    id="recognizeBtn" onclick="startRecognition()">
+                                <i class="bi bi-cpu-fill me-2"></i><span data-i18n="upload.recognize_btn">開始識別</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 加载状态 -->
+                <div id="loadingSection" class="d-none text-center py-5">
+                    <div class="loading-anime">
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                    </div>
+<p class="text-muted mt-3" data-i18n="upload.analyzing">AI 正在分析中，請稍候...</p>
+                    <div class="progress mt-3" style="height:4px;">
+                        <div class="progress-bar progress-bar-animated" 
+                             style="width:100%;"></div>
+                    </div>
+                    <button class="btn btn-outline-secondary btn-sm mt-3" 
+                            id="cancelLoadingBtn" onclick="cancelRecognition()" style="display:none;">
+                        <i class="bi bi-x-circle me-1"></i><span data-i18n="upload.cancel">取消識別</span>
+                    </button>
+                </div>
+
+                <!-- 错误提示区 -->
+                <div id="errorContainer"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* 上傳区域增强 */
+.upload-zone {
+    border: 2px dashed var(--hairline);
+    border-radius: var(--radius-lg);
+    padding: 3.5rem 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: var(--transition);
+    background: var(--canvas-parchment);
+    position: relative;
+    overflow: hidden;
+}
+.upload-zone:hover,
+.upload-zone.drag-over {
+    border-color: var(--primary);
+    background: rgba(0,102,204,0.03);
+}
+.upload-zone-inner { position: relative; z-index: 1; }
+.upload-icon-wrapper {
+    width: 72px; height: 72px;
+    margin: 0 auto 1.2rem;
+    background: rgba(0,102,204,0.08);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    transition: var(--transition);
+}
+.upload-zone:hover .upload-icon-wrapper {
+    transform: scale(1.06);
+    background: rgba(0,102,204,0.12);
+}
+.upload-icon { font-size: 2.2rem; color: var(--primary); }
+.upload-title { font-weight: 600; color: var(--ink); font-size: 1.05rem; }
+.upload-hint { color: var(--ink-muted); font-size: 0.9rem; margin: 0.3rem 0; }
+.upload-formats { color: var(--ink-muted); font-size: 0.78rem; }
+.upload-paste-hint { color: var(--ink-muted); font-size: 0.8rem; opacity: 0.7; }
+
+/* 预览卡片 */
+.preview-card {
+    background: var(--canvas-parchment);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+}
+.preview-img-wrapper {
+    background: var(--canvas);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+}
+.preview-img {
+    max-width: 100%;
+    max-height: 420px;
+    border-radius: var(--radius-md);
+    display: block; margin: 0 auto;
+    box-shadow: var(--shadow-product);
+}
+
+/* 输入组 */
+.input-group-text { border-right: none; background: var(--canvas-parchment); }
+#imageUrlInput { border-left: none; }
+#imageUrlInput:focus { border-left: 1px solid var(--primary); }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/upload.js') }}?v=20260621c"></script>
+{% endblock %}

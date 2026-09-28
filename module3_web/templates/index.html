@@ -1,0 +1,911 @@
+{% extends "base.html" %}
+{% block title %}AnimeID - 動漫角色智慧識別{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ================================
+   主页专用样式
+   ================================ */
+
+/* 防止 100vw 造成横向溢出 */
+html { overflow-x: hidden; }
+
+/* ── Hero 区域 ── */
+.home-hero {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background:
+        radial-gradient(ellipse 120% 40% at 25% 56px,   rgba(0,102,204,0.10) 0%, transparent 55%),
+        radial-gradient(ellipse 100% 35% at 75% 56px,  rgba(90,70,170,0.07) 0%, transparent 50%),
+        linear-gradient(180deg,
+            #e4eefa 0%,
+            #eef4fb 8%,
+            #f3f7fc 16%,
+            #f8fafd 26%,
+            #fcfcfe 38%,
+            #ffffff 52%,
+            #f9fbfe 70%,
+            #f3f7fc 100%
+        );
+    position: relative;
+    overflow: hidden;
+    /* 背景向上延伸到固定導航欄後方 */
+    margin-top: -56px;
+    padding-top: 56px;
+    box-sizing: border-box;
+}
+
+.home-hero::before {
+    content: '';
+    position: absolute;
+    top: -20%;
+    right: -10%;
+    width: 650px;
+    height: 650px;
+    background: radial-gradient(circle, rgba(0,102,204,0.07) 0%, transparent 65%);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.home-hero::after {
+    content: '';
+    position: absolute;
+    bottom: -15%;
+    left: -10%;
+    width: 550px;
+    height: 550px;
+    background: radial-gradient(circle, rgba(100,80,180,0.05) 0%, transparent 65%);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.home-hero-content {
+    position: relative;
+    z-index: 1;
+    max-width: 680px;
+    padding: 2rem;
+}
+
+.home-logo {
+    font-size: 2.4rem;
+    margin-bottom: 0.2rem;
+    cursor: pointer;
+    color: var(--primary, #0066cc);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: logo-bounce 1.6s ease-in-out infinite;
+    transition: opacity 0.2s;
+}
+.home-logo:hover {
+    opacity: 0.7;
+}
+.home-logo .home-logo-arrow {
+    font-size: 2.2rem;
+    line-height: 1;
+    display: block;
+}
+@keyframes logo-bounce {
+    0%, 100% { transform: translateY(0); }
+    45%       { transform: translateY(10px); }
+    55%       { transform: translateY(10px); }
+}
+
+.home-title {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: clamp(2.8rem, 6vw, 4rem);
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: baseline;
+    gap: 0.1em;
+}
+.home-title > span {
+    white-space: nowrap;
+}
+
+/* ── 互動式 Hero 標題（可點擊 + hover 文字切換）── */
+.hero-interactive {
+    position: relative;
+    left: 0.3em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 280px;
+    min-height: 4.5rem;
+    cursor: pointer;
+    padding: 0.5rem 1.5rem;
+    border-radius: var(--radius-lg);
+    transition: background 0.35s ease;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.hero-interactive-text {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: clamp(2.6rem, 5.5vw, 3.8rem);
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    white-space: nowrap;
+    transition: opacity 0.35s ease;
+}
+
+/* 兩段文字絕對置中、重疊，hover 時純 opacity 交叉淡入 */
+.hero-interactive-text.text-default {
+    position: relative;
+}
+
+.hero-interactive-text.text-hover {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.hero-interactive:hover .text-default {
+    opacity: 0;
+}
+
+.hero-interactive:hover .text-hover {
+    opacity: 1;
+}
+
+/* Per-language size tuning */
+[lang="en"] .hero-interactive-text,
+[lang="ko"] .hero-interactive-text { font-size: clamp(2.2rem, 4.6vw, 3.2rem); }
+
+[lang="ja"] .hero-interactive-text,
+[lang="vi"] .hero-interactive-text { font-size: clamp(2rem, 4.3vw, 3rem); }
+
+[lang="th"] .hero-interactive-text { font-size: clamp(1.9rem, 4.1vw, 2.8rem); }
+
+[lang="fr"] .hero-interactive-text,
+[lang="es"] .hero-interactive-text {
+    font-size: clamp(1.85rem, 3.9vw, 2.6rem);
+}
+
+/* 中文標題額外右移：補償標點符號視覺分量輕的問題 */
+[lang="zh-TW"] .hero-interactive,
+[lang="zh-CN"] .hero-interactive {
+    left: 0.45em;
+}
+
+.hero-interactive-text .accent {
+    color: var(--primary);
+}
+
+/* ── 十字準星 Crosshair（Viewport 全螢幕）── */
+.crosshair-layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 9999;
+    overflow: hidden;
+}
+
+.crosshair-h {
+    position: fixed;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: rgba(0,102,204,0.55);
+    will-change: top;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.crosshair-v {
+    position: fixed;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: rgba(0,102,204,0.55);
+    will-change: left;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+/* 滑入 hero-interactive 後，十字線顯示並跟隨 viewport 滑鼠 */
+/* 僅在支援 hover 的裝置顯示（排除觸控裝置） */
+@media (hover: hover) {
+    body.crosshair-active .crosshair-h,
+    body.crosshair-active .crosshair-v {
+        opacity: 1;
+    }
+}
+
+/* 確保 hero 內容在十字線上方 */
+.home-hero-content {
+    position: relative;
+    z-index: 1;
+}
+
+.home-subtitle {
+    font-size: 1.2rem;
+    color: var(--ink-muted);
+    font-weight: 400;
+    line-height: 1.6;
+    letter-spacing: -0.01em;
+    margin-bottom: 2.5rem;
+    white-space: pre-line;
+}
+
+.home-cta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.btn-scan {
+    background: var(--primary);
+    border: none;
+    color: #ffffff;
+    font-size: 1.15rem;
+    font-weight: 500;
+    padding: 0.85rem 2.5rem;
+    border-radius: var(--radius-pill);
+    letter-spacing: -0.01em;
+    transition: all 0.3s cubic-bezier(0.25,0.1,0.25,1);
+    box-shadow: 0 2px 16px rgba(0,102,204,0.25);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    cursor: pointer;
+}
+
+.btn-scan:hover {
+    background: var(--primary-focus);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 24px rgba(0,102,204,0.35);
+}
+
+.btn-scan:active {
+    background: var(--primary-press);
+    transform: translateY(0);
+}
+
+.scan-hint {
+    font-size: 0.82rem;
+    color: var(--ink-muted);
+}
+
+
+/* ── 全屏遮罩識別弹窗 ── */
+.recognize-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.recognize-overlay.active {
+    display: flex;
+}
+
+.recognize-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(8, 6, 16, 0.82);
+    backdrop-filter: saturate(120%) blur(10px) brightness(0.45);
+    -webkit-backdrop-filter: saturate(120%) blur(10px) brightness(0.45);
+    animation: fadeIn 0.6s ease;
+}
+
+.recognize-panel {
+    position: relative;
+    z-index: 2;
+    width: 90vw;
+    max-width: 700px;
+    max-height: 90vh;
+    background: var(--canvas);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 24px 80px rgba(0,0,0,0.25);
+    overflow-y: auto;
+    animation: panelIn 0.4s cubic-bezier(0.16,1,0.3,1);
+}
+
+.recognize-panel.closing {
+    animation: panelOut 0.25s cubic-bezier(0.4,0,0.2,1) forwards;
+}
+
+.panel-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--hairline);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.btn-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: none;
+    border: 1px solid var(--hairline);
+    color: var(--ink-muted);
+    font-size: 0.88rem;
+    font-weight: 500;
+    padding: 0.4rem 0.9rem;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-back:hover {
+    color: var(--ink);
+    border-color: var(--ink-muted);
+    background: rgba(0,0,0,0.03);
+}
+
+.panel-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.panel-body {
+    padding: 1.5rem;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+@keyframes panelIn {
+    from {
+        opacity: 0;
+        transform: scale(0.92) translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes panelOut {
+    from {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.94) translateY(8px);
+    }
+}
+
+/* ── 遮罩内上傳区域适配 ── */
+.recognize-panel .upload-zone {
+    border: 2px dashed var(--hairline);
+    border-radius: var(--radius-lg);
+    padding: 2.5rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: var(--transition);
+    background: var(--canvas-parchment);
+}
+
+.recognize-panel .upload-zone:hover,
+.recognize-panel .upload-zone.drag-over {
+    border-color: var(--primary);
+    background: rgba(0,102,204,0.03);
+}
+
+.recognize-panel .upload-icon-wrapper {
+    width: 60px; height: 60px;
+    margin: 0 auto 1rem;
+    background: rgba(0,102,204,0.08);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    transition: var(--transition);
+}
+
+.recognize-panel .upload-zone:hover .upload-icon-wrapper {
+    transform: scale(1.06);
+    background: rgba(0,102,204,0.12);
+}
+
+.recognize-panel .upload-icon {
+    font-size: 1.8rem;
+    color: var(--primary);
+}
+
+.recognize-panel .upload-title {
+    font-weight: 600;
+    color: var(--ink);
+    font-size: 1rem;
+    margin-bottom: 0.2rem;
+}
+
+.recognize-panel .upload-hint {
+    color: var(--ink-muted);
+    font-size: 0.85rem;
+    margin-bottom: 0.2rem;
+}
+
+.recognize-panel .upload-formats {
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+    margin-bottom: 0;
+}
+
+.recognize-panel .upload-paste-hint {
+    color: var(--ink-muted);
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+
+/* ── 响应式 ── */
+@media (max-width: 576px) {
+    .home-hero { min-height: 75vh; }
+    .home-title { font-size: 1.8rem; word-break: keep-all; gap: 0.05em; }
+    [lang="fr"] .home-title, [lang="es"] .home-title {
+        font-size: 1.5rem; flex-direction: column;
+    }
+    .home-subtitle { font-size: 1rem; }
+    .recognize-panel {
+        width: 95vw;
+        max-height: 95vh;
+        border-radius: var(--radius-md);
+    }
+    .panel-header { border-radius: var(--radius-md) var(--radius-md) 0 0; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ═══════════════════════════════════
+     Hero 区域
+     ═══════════════════════════════════ -->
+<section class="home-hero">
+    <div class="home-hero-content">
+        <div class="home-logo" onclick="openRecognizePanel()" title="點擊識別">
+            <i class="bi bi-chevron-down home-logo-arrow"></i>
+        </div>
+
+        <!-- 互動式標題：hover 切換文字，click 開啟識別 -->
+        <div class="hero-interactive" id="heroInteractive" onclick="openRecognizePanel()">
+            <!-- 默認文字 -->
+            <span class="hero-interactive-text text-default" data-i18n="home.hero_text_default">欲知影伊是誰？</span>
+            <!-- Hover 文字 -->
+            <span class="hero-interactive-text text-hover" data-i18n="home.hero_text_hover">立即幫你找到！</span>
+        </div>
+
+        <p class="home-subtitle" data-i18n="home.subtitle">
+            上傳任意動漫截圖，AI 即刻告訴你角色名稱與出處作品
+支援數千動漫角色，準確率領先
+        </p>
+        <div class="home-cta">
+            <span class="scan-hint" data-i18n="home.scan_hint">點擊上方文字開始識別</span>
+        </div>
+    </div>
+</section>
+
+<!-- 十字準星（Viewport 全螢幕） -->
+<div class="crosshair-layer" id="crosshairLayer">
+    <!-- SVG 濾鏡：feTurbulence 產生震顫效果 -->
+    <svg style="position:absolute;width:0;height:0;overflow:hidden">
+        <defs>
+            <filter id="filter-noise-x">
+                <feTurbulence id="feTurbX" type="fractalNoise" baseFrequency="0" numOctaves="1" seed="2"/>
+                <feDisplacementMap in="SourceGraphic" scale="24"/>
+            </filter>
+            <filter id="filter-noise-y">
+                <feTurbulence id="feTurbY" type="fractalNoise" baseFrequency="0" numOctaves="1" seed="2"/>
+                <feDisplacementMap in="SourceGraphic" scale="24"/>
+            </filter>
+        </defs>
+    </svg>
+    <div class="crosshair-h" id="crosshairH"></div>
+    <div class="crosshair-v" id="crosshairV"></div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     全屏遮罩 —— 識別弹窗
+     ═══════════════════════════════════ -->
+<div class="recognize-overlay" id="recognizeOverlay">
+    <!-- 半透明暗層 + 模糊（底層，z-index: 0） -->
+    <div class="recognize-backdrop" onclick="closeRecognizePanel()"></div>
+    <!-- 3D 掃描網格背景（在暗層之上、面板之下，z-index: 1） -->
+    <div id="gridScanContainer" style="position:absolute;inset:0;pointer-events:none;z-index:1;"></div>
+
+    <!-- 矩形面板 -->
+    <div class="recognize-panel" id="recognizePanel">
+        <!-- 头部：返回按钮 -->
+        <div class="panel-header">
+            <button class="btn-back" onclick="closeRecognizePanel()">
+                <i class="bi bi-arrow-left"></i>
+                <span data-i18n="home.panel_back">返回主頁</span>
+            </button>
+            <div class="panel-title">
+                <i class="bi bi-camera-fill text-primary"></i>
+                <span data-i18n="home.panel_title">識別動漫角色</span>
+            </div>
+            <div style="width:80px;"></div><!-- 占位保持居中 -->
+        </div>
+
+        <!-- 面板內容：上傳識別界面 -->
+        <div class="panel-body">
+            <!-- 步骤指示器 -->
+            <div class="steps-indicator mb-4">
+                <div class="step active" id="step1">
+                    <div class="step-circle">1</div>
+                    <span data-i18n="upload.step1">上傳圖片</span>
+                </div>
+                <div class="step-line"></div>
+                <div class="step" id="step2">
+                    <div class="step-circle">2</div>
+                    <span data-i18n="upload.step2">預覽確認</span>
+                </div>
+                <div class="step-line"></div>
+                <div class="step" id="step3">
+                    <div class="step-circle">3</div>
+                    <span data-i18n="upload.step3">開始識別</span>
+                </div>
+            </div>
+
+            <!-- 上傳区域 -->
+            <div class="upload-zone" id="uploadZone">
+                <div class="upload-icon-wrapper">
+                    <i class="bi bi-cloud-arrow-up-fill upload-icon"></i>
+                </div>
+                <h4 class="upload-title" data-i18n="upload.drag_hint">拖曳圖片到此處</h4>
+                <p class="upload-hint" data-i18n="upload.drag_hint_sub">或點擊選擇圖片檔案</p>
+                <p class="upload-formats" data-i18n="upload.formats">支援 JPG / PNG / WebP / GIF，最大 16MB</p>
+                <input type="file" id="imageInput" accept="image/*" class="d-none">
+                <div class="d-flex gap-2 justify-content-center mt-3">
+                    <button class="btn btn-outline-primary rounded-pill px-4"
+                            onclick="document.getElementById('imageInput').click()">
+                        <i class="bi bi-folder-open me-2"></i><span data-i18n="upload.select_file">選擇檔案</span>
+                    </button>
+                </div>
+                <p class="upload-paste-hint mt-3 mb-0">
+                    <i class="bi bi-clipboard2-heart me-1"></i>
+                    <span data-i18n="upload.paste_hint">或按 Ctrl+V 貼上剪貼簿截圖</span>
+                </p>
+            </div>
+
+            <!-- 分割线 -->
+            <div class="divider-with-text my-4">
+                <span data-i18n="upload.or">或者</span>
+            </div>
+
+            <!-- URL输入 -->
+            <div class="mb-4">
+                <label class="form-label">
+                    <i class="bi bi-link-45deg me-1"></i><span data-i18n="upload.url_label">圖片連結（URL）</span>
+                </label>
+                <div class="input-group">
+                    <span class="input-group-text bg-light border">
+                        <i class="bi bi-globe2"></i>
+                    </span>
+                    <input type="url" class="form-control form-control-custom" 
+                           id="imageUrlInput" 
+                           placeholder="https://example.com/anime.jpg">
+                    <button class="btn btn-primary" id="urlRecognizeBtn" onclick="recognizeFromUrl()">
+                        <i class="bi bi-search"></i> <span data-i18n="upload.recognize_btn">識別</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 预览区域 -->
+            <div id="previewSection" class="d-none">
+                <div class="preview-card">
+                    <div class="preview-header d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0 text-muted">
+                            <i class="bi bi-image me-1"></i><span data-i18n="upload.preview_label">圖片預覽</span>
+                        </h6>
+                        <button class="btn-action" onclick="clearPreview()" title="移除">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                    <div class="preview-img-wrapper text-center">
+                        <img id="previewImage" src="" alt="預覽" class="preview-img">
+                    </div>
+                    <div class="text-center mt-4">
+                        <button class="btn btn-primary btn-lg rounded-pill px-5" 
+                                id="recognizeBtn" onclick="startRecognition()">
+                            <i class="bi bi-cpu-fill me-2"></i><span data-i18n="upload.recognize_btn">開始識別</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 加载状态 -->
+            <div id="loadingSection" class="d-none text-center py-5">
+                <div class="loading-anime">
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                </div>
+                <p class="text-muted mt-3" data-i18n="upload.analyzing">AI 正在分析中，請稍候...</p>
+                <div class="progress mt-3" style="height:4px;">
+                    <div class="progress-bar progress-bar-animated" 
+                         style="width:100%;"></div>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm mt-3" 
+                        id="cancelLoadingBtn" onclick="cancelRecognition()" style="display:none;">
+                    <i class="bi bi-x-circle me-1"></i><span data-i18n="upload.cancel">取消識別</span>
+                </button>
+            </div>
+
+            <!-- 错误提示区 -->
+            <div id="errorContainer"></div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/upload.js') }}?v=20260621c"></script>
+<script src="{{ url_for('static', filename='js/grid-scan.js') }}?v=20260621b"></script>
+<script>
+/**
+ * 主頁識別彈窗控制 + 十字準星 Crosshair（Viewport 全螢幕）
+ */
+
+// ═══════════════════════════════════
+//  Crosshair —— Viewport 全螢幕跟隨滑鼠
+//  滑入 .home-hero 後啟用，接觸文字時觸發 feTurbulence 震顫
+// ═══════════════════════════════════
+(function () {
+    var heroSec  = document.querySelector('.home-hero');
+    var lineH    = document.getElementById('crosshairH');
+    var lineV    = document.getElementById('crosshairV');
+    var feTurbX  = document.getElementById('feTurbX');
+    var feTurbY  = document.getElementById('feTurbY');
+
+    if (!heroSec || !lineH || !lineV) return;
+
+    var state      = { tx: 0, ty: 0, prevTx: 0, prevTy: 0 };
+    var LERP       = 0.15;
+    var rafId      = null;
+    var active     = false;
+    var trembleRaf = null;
+    var overText   = false;  // 是否懸停在文字上
+
+    function lerp(a, b, n) { return (1 - n) * a + n * b; }
+
+    // 取得所有可觸發震顫的元素
+    function getTrembleTargets() {
+        return heroSec.querySelectorAll('.hero-interactive-text');
+    }
+
+    // 檢查座標是否在某個元素上方
+    function isPointOverElement(x, y, el) {
+        var r = el.getBoundingClientRect();
+        return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    }
+
+    // ── 震顫效果：用 feTurbulence 扭曲十字線 ──
+    function triggerTremble() {
+        if (!feTurbX || !feTurbY) return;
+
+        // 先清除上一次震顫
+        if (trembleRaf) { cancelAnimationFrame(trembleRaf); trembleRaf = null; }
+
+        var duration   = 500;  // ms
+        var startFreq  = 0.08;
+        var startTime  = null;
+
+        // 套用 SVG 濾鏡
+        lineH.style.filter = 'url(#filter-noise-x)';
+        lineV.style.filter = 'url(#filter-noise-y)';
+
+        function animateTremble(timestamp) {
+            if (!startTime) startTime = timestamp;
+            var elapsed  = timestamp - startTime;
+            var progress = Math.min(elapsed / duration, 1);
+
+            // ease-out：頻率從 startFreq 降到 0
+            var freq = startFreq * (1 - progress * progress);
+            feTurbX.setAttribute('baseFrequency', freq.toFixed(4));
+            feTurbY.setAttribute('baseFrequency', freq.toFixed(4));
+
+            if (progress < 1) {
+                trembleRaf = requestAnimationFrame(animateTremble);
+            } else {
+                lineH.style.filter = 'none';
+                lineV.style.filter = 'none';
+                trembleRaf = null;
+            }
+        }
+
+        trembleRaf = requestAnimationFrame(animateTremble);
+    }
+
+    // 渲染循環：lerp 平滑追蹤
+    function render() {
+        state.prevTx = lerp(state.prevTx, state.tx, LERP);
+        state.prevTy = lerp(state.prevTy, state.ty, LERP);
+        lineV.style.left = Math.round(state.prevTx) + 'px';
+        lineH.style.top  = Math.round(state.prevTy) + 'px';
+
+        // 偵測是否接觸文字 → 觸發震顫
+        var targets = getTrembleTargets();
+        var hitting = false;
+        for (var i = 0; i < targets.length; i++) {
+            if (isPointOverElement(state.tx, state.ty, targets[i])) {
+                hitting = true;
+                break;
+            }
+        }
+        if (hitting && !overText) {
+            triggerTremble();
+        }
+        overText = hitting;
+
+        rafId = requestAnimationFrame(render);
+    }
+
+    // 啟用十字線
+    function enableCrosshair(e) {
+        if (active) return;
+        active = true;
+        document.body.classList.add('crosshair-active');
+        state.tx = e.clientX;
+        state.ty = e.clientY;
+        state.prevTx = e.clientX;
+        state.prevTy = e.clientY;
+        lineV.style.left = e.clientX + 'px';
+        lineH.style.top  = e.clientY + 'px';
+        window.addEventListener('mousemove', onWindowMouseMove);
+        rafId = requestAnimationFrame(render);
+    }
+
+    // 停用十字線
+    function disableCrosshair() {
+        if (!active) return;
+        active = false;
+        overText = false;
+        document.body.classList.remove('crosshair-active');
+        window.removeEventListener('mousemove', onWindowMouseMove);
+        if (rafId)      { cancelAnimationFrame(rafId);      rafId = null; }
+        if (trembleRaf) { cancelAnimationFrame(trembleRaf); trembleRaf = null; }
+        lineH.style.filter = 'none';
+        lineV.style.filter = 'none';
+    }
+
+    function onWindowMouseMove(e) {
+        state.tx = e.clientX;
+        state.ty = e.clientY;
+    }
+
+    // 滑入 .home-hero → 啟用十字線
+    heroSec.addEventListener('mouseenter', function (e) {
+        enableCrosshair(e);
+    });
+
+    // 滑出 .home-hero → 停用
+    heroSec.addEventListener('mouseleave', function () {
+        disableCrosshair();
+    });
+})();
+
+// ═══════════════════════════════════
+//  識別彈窗控制
+// ═══════════════════════════════════
+
+// 打开識別面板
+function openRecognizePanel() {
+    const overlay = document.getElementById('recognizeOverlay');
+    const panel = document.getElementById('recognizePanel');
+    overlay.classList.add('active');
+    panel.classList.remove('closing');
+    // 阻止 body 滚动
+    document.body.style.overflow = 'hidden';
+
+    // 啟動 3D 掃描網格背景
+    if (typeof GridScan !== 'undefined') {
+        if (!GridScan.isRunning()) {
+            if (!GridScan.isInitialized()) {
+                GridScan.init('#gridScanContainer', {
+                    linesColor: '#2a0f50',
+                    scanColor: '#00CCFF',
+                    gridScale: 0.12,
+                    lineThickness: 1,
+                    lineJitter: 0.35,
+                    scanOpacity: 0.55,
+                    bloomIntensity: 0.7,
+                    chromaticAberration: 0.0012,
+                    noiseIntensity: 0.02,
+                    scanGlow: 0.55,
+                    scanSoftness: 2.5,
+                    scanDuration: 2.2,
+                    scanDelay: 1.8,
+                    scanDirection: 'pingpong-reverse',
+                    sensitivity: 0.4
+                }).then(function () {
+                    GridScan.start();
+                }).catch(function (err) {
+                    console.error('[GridScan] Init failed:', err);
+                });
+            } else {
+                GridScan.start();
+            }
+        }
+    }
+}
+
+// 关闭識別面板
+function closeRecognizePanel() {
+    const overlay = document.getElementById('recognizeOverlay');
+    const panel = document.getElementById('recognizePanel');
+    const backdrop = document.querySelector('.recognize-backdrop');
+
+    panel.classList.add('closing');
+
+    // 停止 3D 掃描網格（淡出）
+    if (typeof GridScan !== 'undefined') {
+        GridScan.stop();
+    }
+    // backdrop 同步淡出
+    if (backdrop) backdrop.style.transition = 'opacity 0.5s ease';
+
+    setTimeout(() => {
+        overlay.classList.remove('active');
+        panel.classList.remove('closing');
+        document.body.style.overflow = '';
+        if (backdrop) backdrop.style.transition = '';
+
+        // 重置識別界面状态
+        if (typeof clearPreview === 'function') clearPreview();
+        const loadingSection = document.getElementById('loadingSection');
+        if (loadingSection) loadingSection.classList.add('d-none');
+        const errorContainer = document.getElementById('errorContainer');
+        if (errorContainer) errorContainer.innerHTML = '';
+        const uploadZone = document.getElementById('uploadZone');
+        if (uploadZone) uploadZone.classList.remove('d-none');
+    }, 600);
+}
+
+// ESC 关闭
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        const overlay = document.getElementById('recognizeOverlay');
+        if (overlay && overlay.classList.contains('active')) {
+            closeRecognizePanel();
+        }
+    }
+});
+
+// 點擊遮罩面板本身不关闭（防止误触）
+var _panel = document.getElementById('recognizePanel');
+if (_panel) {
+    _panel.addEventListener('click', function(e) {
+        e.stopPropagation();
+    });
+}
+</script>
+{% endblock %}

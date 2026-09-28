@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}識別記錄 - AnimeID 動漫角色識別系统{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ================================
+   历史記錄页 — Feed 时间轴風格
+   ================================ */
+.history-section {
+    min-height: calc(100vh - 200px);
+}
+
+.history-header {
+    padding: 2rem 0 1.5rem;
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: 2rem;
+}
+
+.history-header h2 {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+}
+
+.history-header .subtitle {
+    font-size: 0.9rem;
+    color: var(--ink-muted);
+}
+
+.history-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.feed-item {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--divider-soft);
+    transition: var(--transition);
+    align-items: flex-start;
+    text-decoration: none;
+    color: inherit;
+}
+
+.feed-item:hover {
+    background: var(--canvas-parchment);
+    margin: 0 -0.75rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    border-radius: var(--radius-md);
+    border-bottom-color: transparent;
+}
+
+.feed-item:hover + .feed-item {
+    border-top-color: transparent;
+}
+
+.feed-thumb {
+    flex-shrink: 0;
+    width: 72px;
+    height: 72px;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: var(--canvas-parchment);
+    border: 1px solid var(--hairline);
+}
+
+.feed-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.feed-thumb.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: var(--ink-muted);
+}
+
+.feed-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.feed-top-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.25rem;
+}
+
+.feed-char-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 260px;
+}
+
+.feed-anime-name {
+    font-size: 0.8rem;
+    color: var(--ink-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 0.35rem;
+}
+
+.feed-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    font-size: 0.75rem;
+    color: var(--ink-muted);
+}
+
+.feed-time {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.feed-source-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.12rem 0.5rem;
+    border-radius: var(--radius-pill);
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.feed-source-badge.ai {
+    background: rgba(0,102,204,0.08);
+    color: var(--primary);
+}
+
+.feed-source-badge.local {
+    background: rgba(134,134,139,0.08);
+    color: var(--ink-muted);
+}
+
+.feed-source-badge.mock {
+    background: rgba(255,149,0,0.08);
+    color: var(--warning);
+}
+
+.not-anime-badge-sm {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.12rem 0.5rem;
+    border-radius: var(--radius-pill);
+    font-size: 0.7rem;
+    font-weight: 500;
+    background: rgba(255,59,48,0.08);
+    color: var(--danger);
+}
+
+.feed-char-count {
+    font-size: 0.7rem;
+    color: var(--info);
+}
+
+.feed-arrow {
+    flex-shrink: 0;
+    color: var(--ink-muted);
+    font-size: 0.8rem;
+    align-self: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.feed-item:hover .feed-arrow {
+    opacity: 1;
+}
+
+/* ================================
+   空状态
+   ================================ */
+.history-empty {
+    text-align: center;
+    padding: 4rem 1rem;
+}
+
+.history-empty .empty-icon {
+    font-size: 3rem;
+    color: var(--hairline);
+}
+
+/* 响应式 */
+@media (max-width: 576px) {
+    .feed-thumb {
+        width: 56px;
+        height: 56px;
+    }
+    .feed-char-name {
+        font-size: 0.85rem;
+        max-width: 180px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="history-section">
+    <div class="container">
+        <!-- 页头 -->
+        <div class="history-header">
+            <h2>
+                <i class="bi bi-clock-history me-2 text-primary"></i><span data-i18n="history.title">識別記錄</span>
+            </h2>
+            <p class="subtitle mb-0" id="historySubtitle">
+                所有識別历史（含非動漫圖片），共 <strong>{{ records.total }}</strong> 条
+            </p>
+        </div>
+        
+        <script>
+        // 等 i18n 就緒後替換 subtitle
+        (function() {
+            var total = {{ records.total }};
+            function applySubtitle() {
+                if (window.i18n && window.i18n.t) {
+                    var el = document.getElementById('historySubtitle');
+                    if (el) {
+                        el.innerHTML = window.i18n.t('history.subtitle', {n: total});
+                    }
+                } else {
+                    setTimeout(applySubtitle, 50);
+                }
+            }
+            document.addEventListener('i18n:ready', applySubtitle);
+            applySubtitle();
+        })();
+        </script>
+
+        {% if records.items %}
+        <!-- Feed 列表 -->
+        <div class="history-feed">
+            {% for record in records.items %}
+            <a href="{{ url_for('record_detail', record_id=record.id) }}" class="feed-item">
+                <!-- 缩略图 -->
+                <div class="feed-thumb">
+                    {% if record.image_url or record.image_filename %}
+                    <img 
+                        src="{{ record.image_url or url_for('uploaded_file', filename=record.image_filename) }}"
+                        alt="識別圖片"
+                        loading="lazy"
+                        onerror="this.parentElement.className='feed-thumb placeholder'; this.remove();"
+                    >
+                    {% else %}
+                    <span>🖼</span>
+                    {% endif %}
+                </div>
+
+                <!-- 信息 -->
+                <div class="feed-body">
+                    <!-- 角色名 + 状态标记 -->
+                    <div class="feed-top-row">
+                        <span class="feed-char-name">
+                            {{ record.user_corrected_name or (record.top1_character_key | resolve_name(record.top1_character_name)) or '未知角色' }}
+                        </span>
+                        {% if record.is_anime == False %}
+                        <span class="not-anime-badge-sm">
+                            <i class="bi bi-slash-circle"></i> <span data-i18n="history.not_anime">非動漫</span>
+                        </span>
+                        {% endif %}
+                        {% if record.character_count and record.character_count > 1 %}
+                        <span class="feed-char-count">
+                            <i class="bi bi-people-fill"></i> {{ record.character_count }}人
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    <!-- 作品名 -->
+                    <div class="feed-anime-name">
+                        {{ record.user_corrected_anime or (record.top1_character_key | resolve_anime(record.top1_anime)) or '' }}
+                    </div>
+
+                    <!-- 元資料行 -->
+                    <div class="feed-meta">
+                        <span class="feed-time">
+                            <i class="bi bi-clock"></i>
+                            {% if record.created_at %}
+                            {{ record.created_at.strftime('%m-%d %H:%M') }}
+                            {% endif %}
+                        </span>
+                        {% if record.recognition_source == 'qwen-open' or record.recognition_source == 'qwen-verified' or record.recognition_source == 'qwen-vl' %}
+                        <span class="feed-source-badge ai">
+                            <i class="bi bi-robot"></i> <span data-i18n="history.source_qwen">Qwen AI</span>
+                        </span>
+                        {% elif record.recognition_source == 'local-only' or record.recognition_source == 'local' %}
+                        <span class="feed-source-badge local">
+                            <i class="bi bi-cpu"></i> <span data-i18n="history.source_local">本地模型</span>
+                        </span>
+                        {% else %}
+                        <span class="feed-source-badge mock">
+                            <i class="bi bi-shuffle"></i> {{ record.recognition_source or 'mock' }}
+                        </span>
+                        {% endif %}
+                        {% if record.top1_confidence %}
+                        <span style="font-weight:500;color:var(--primary);">
+                            {{ "%.0f"|format(record.top1_confidence) }}%
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- 箭头 -->
+                <span class="feed-arrow">
+                    <i class="bi bi-chevron-right"></i>
+                </span>
+            </a>
+            {% endfor %}
+        </div>
+
+        <!-- 分页 -->
+        {% if records.pages > 1 %}
+        <nav class="mt-4 d-flex justify-content-center">
+            <ul class="pagination pagination-custom">
+                {% if records.has_prev %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ records.prev_num }}">
+                        <i class="bi bi-chevron-left"></i>
+                    </a>
+                </li>
+                {% endif %}
+                
+                {% for page_num in records.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if page_num %}
+                    <li class="page-item {% if page_num == records.page %}active{% endif %}">
+                        <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
+                    {% endif %}
+                {% endfor %}
+                
+                {% if records.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ records.next_num }}">
+                        <i class="bi bi-chevron-right"></i>
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+
+        {% else %}
+        <!-- 空状态 -->
+        <div class="history-empty">
+            <div class="empty-icon">📋</div>
+            <h4 class="mt-3 mb-2" data-i18n="history.empty_title">暫無識別記錄</h4>
+            <p class="text-muted" data-i18n="history.empty_desc">快去上傳第一張圖片開始識別吧！</p>
+            <a href="{{ url_for('upload_page') }}" class="btn btn-primary rounded-pill mt-2">
+                <i class="bi bi-cloud-upload me-2"></i><span data-i18n="history.upload_btn">上傳圖片</span>
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

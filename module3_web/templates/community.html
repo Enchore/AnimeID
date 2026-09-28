@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}社群 - AnimeID{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <!-- 頁面標題（與角色牆統一風格） -->
+    <div class="section-header d-flex align-items-center justify-content-between mb-4">
+        <h2 class="section-title" data-i18n="community.title">
+            <i class="bi bi-people-fill me-2 text-primary"></i>社群
+        </h2>
+    </div>
+
+    <div class="row g-4">
+        <!-- 熱門討論 -->
+        <div class="col-lg-6">
+            <div class="detail-card h-100">
+                <h5 class="section-subtitle mb-3">
+                    <i class="bi bi-fire me-2" style="color:var(--danger)"></i><span data-i18n="community.hot_discussion">熱門討論</span>
+                </h5>
+                {% if hot_records %}
+                    {% for record, count in hot_records %}
+                    <div class="leaderboard-item" onclick="location.href='{{ url_for('record_detail', record_id=record.id) }}'">
+                        <div style="width:48px;height:48px;border-radius:8px;overflow:hidden;flex-shrink:0;background:var(--canvas-parchment);">
+                            <img src="{{ record.image_url or url_for('uploaded_file', filename=record.image_filename) }}"
+                                 alt="" style="width:100%;height:100%;object-fit:cover;"
+                                 onerror="this.style.display='none'">
+                        </div>
+                        <div class="leaderboard-info">
+                            <div class="leaderboard-name">{{ record.top1_character_name or '未知' }}</div>
+                            <div class="leaderboard-anime">{{ record.top1_anime or '' }}</div>
+                        </div>
+                        <div class="leaderboard-count">
+                            <i class="bi bi-chat-dots me-1"></i>{{ count }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center py-4 text-muted" data-i18n="community.no_discussion">暫無討論，快去識別頁新增評論吧</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 排行榜 -->
+        <div class="col-lg-6">
+            <div class="detail-card h-100">
+                <h5 class="section-subtitle mb-3">
+                    <i class="bi bi-trophy-fill me-2" style="color:#ffd700"></i><span data-i18n="community.leaderboard">角色人氣榜</span>
+                </h5>
+                {% if top_liked %}
+                    {% for name, anime, likes, count in top_liked %}
+                    {% set rank = loop.index %}
+                    <div class="leaderboard-item">
+                        <div class="leaderboard-rank {% if rank==1 %}top1{% elif rank==2 %}top2{% elif rank==3 %}top3{% endif %}">
+                            {% if rank == 1 %}🥇{% elif rank == 2 %}🥈{% elif rank == 3 %}🥉{% else %}#{{ rank }}{% endif %}
+                        </div>
+                        <div class="leaderboard-info">
+                            <div class="leaderboard-name">{{ name }}</div>
+                            <div class="leaderboard-anime">{{ anime }}</div>
+                        </div>
+                        <div class="leaderboard-count">
+                            <i class="bi bi-heart me-1"></i>{{ likes }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center py-4 text-muted" data-i18n="community.no_data">暫無資料</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 最新上傳 -->
+    <div class="detail-card mt-4">
+        <h5 class="section-subtitle mb-3">
+            <i class="bi bi-clock-history me-2" style="color:var(--info)"></i><span data-i18n="community.latest_uploads">最新上傳</span>
+        </h5>
+        <div class="row g-3">
+            {% if latest_records %}
+                {% for record in latest_records %}
+                <div class="col-6 col-sm-4 col-md-3">
+                    <div class="character-card" onclick="location.href='{{ url_for('record_detail', record_id=record.id) }}'"
+                         style="padding:0.5rem;display:flex;align-items:center;gap:0.5rem;">
+                        <div style="width:48px;height:48px;border-radius:8px;overflow:hidden;flex-shrink:0;background:var(--canvas-parchment);">
+                            <img src="{{ record.image_url or url_for('uploaded_file', filename=record.image_filename) }}"
+                                 alt="" style="width:100%;height:100%;object-fit:cover;"
+                                 onerror="this.style.display='none'">
+                        </div>
+                        <div style="flex:1;min-width:0;">
+                            <div class="char-name">{{ record.top1_character_name or '未知' }}</div>
+                            <div class="anime-name">{{ record.top1_anime or '' }}</div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="col-12 text-center py-4 text-muted" data-i18n="community.no_uploads">暫無上傳記錄</div>
+            {% endif %}
+        </div>
+        <div class="text-center mt-3">
+            <a href="{{ url_for('character_wall') }}" class="btn btn-outline-primary rounded-pill">
+                <i class="bi bi-grid-3x3-gap me-1"></i><span data-i18n="community.browse_wall">瀏覽全部角色牆</span>
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

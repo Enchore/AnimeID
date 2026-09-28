@@ -1,0 +1,13 @@
+{
+  "total_labeled": 61,
+  "trained_count": 48,
+  "model_versions": [
+    {
+      "version": 1,
+      "path": "F:\\Projects\\AnimeID\\anime-recognition-system\\models\\auto_v1\\best_model.pth",
+      "accuracy": 0.0,
+      "created_at": "2026-06-22T07:29:55.386067"
+    }
+  ],
+  "current_version": 1
+}
